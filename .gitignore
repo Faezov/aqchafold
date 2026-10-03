@@ -1,0 +1,32 @@
+# dependencies / builds
+node_modules/
+dist/
+.expo/
+coverage/
+
+# local environment
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+
+# private financial data
+fixtures/private/
+private/
+statements/
+receipts/private/
+*.private.pdf
+*.private.csv
+*.private.jpg
+*.private.jpeg
+*.private.png
+
+# local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# debug output
+debug*.txt
