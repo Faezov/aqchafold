@@ -1,0 +1,58 @@
+﻿enabled,priority,match_type,pattern,canonical_name,category,budget_character,status,notes
+1,220,contains,COSTCO GAS,Costco Gas,Transport,Essential,confirmed,Fuel
+1,210,contains,TFNSW OPAL,Transport for NSW,Transport,Essential,confirmed,Opal fare
+1,210,contains,TRANSPORTFORNSW,Transport for NSW,Transport,Essential,confirmed,Opal / tap fare
+1,200,contains,13CABS,13cabs,Transport,Essential,confirmed,Taxi
+1,200,contains,TAXIPAY,Taxi,Transport,Essential,confirmed,Taxi
+1,200,contains,BP LAUDERDALE,BP,Transport,Essential,confirmed,Fuel
+1,200,contains,AUTO DYNAMICS,Auto Dynamics,Transport,Irregular,confirmed,Vehicle maintenance
+1,200,contains,OPUSPARK,OpusPark,Transport,Essential,confirmed,Parking
+1,200,contains,SYDNEY OLYMPIC PARK P5,Sydney Olympic Park Parking,Transport,Irregular,confirmed,Parking
+1,200,contains,HUNGRYPANDA,HungryPanda,Dining & Coffee,Discretionary,confirmed,Food delivery
+1,200,contains,UBER *EATS,Uber Eats,Dining & Coffee,Discretionary,confirmed,Food delivery
+1,200,contains,DOORDASH,DoorDash,Dining & Coffee,Discretionary,confirmed,Food delivery
+1,190,contains,KAHII,Kahii,Dining & Coffee,Discretionary,suggested,Recurring ~$7 purchases; confirm merchant
+1,190,contains,FLYING HAT,Flying Hat,Dining & Coffee,Discretionary,suggested,Recurring small purchases; confirm merchant
+1,190,contains,BARREL BELOW,Barrel Below,Dining & Coffee,Discretionary,suggested,Recurring ~$4 purchases; confirm merchant
+1,190,contains,COZY & BREW,Cozy & Brew,Dining & Coffee,Discretionary,confirmed,Cafe / coffee
+1,180,contains,BETTYS BURGERS,Betty's Burgers,Dining & Coffee,Discretionary,confirmed,Restaurant
+1,180,contains,KRISPY KREME,Krispy Kreme,Dining & Coffee,Discretionary,confirmed,Food
+1,180,contains,GIRDLERS,Girdlers,Dining & Coffee,Discretionary,confirmed,Cafe
+1,180,contains,BARE NAKED BOWLS,Bare Naked Bowls,Dining & Coffee,Discretionary,confirmed,Food
+1,180,contains,STOCK MARKET KITCH,Stock Market Kitchen,Dining & Coffee,Discretionary,confirmed,Food
+1,200,contains,ALDI STORES,ALDI,Groceries,Essential,confirmed,Groceries
+1,170,contains,COSTCO WHOLESALE,Costco,Groceries,Essential,suggested,Costco can be mixed; review if needed
+1,170,contains,COSTCO AUBURN,Costco,Groceries,Essential,suggested,Costco can be mixed; review if needed
+1,200,contains,REBEL ,Rebel,Shopping,Discretionary,confirmed,Sporting goods
+1,200,contains,ASOS,ASOS,Shopping,Discretionary,confirmed,Clothing
+1,200,contains,THREDUP,ThredUp,Shopping,Discretionary,confirmed,Clothing
+1,200,contains,ON SPORTSWEAR,On,Shopping,Discretionary,confirmed,Apparel / footwear
+1,200,contains,ADIDAS,Adidas,Shopping,Discretionary,confirmed,Apparel / footwear
+1,200,contains,DEPOP,Depop,Shopping,Discretionary,confirmed,Clothing marketplace
+1,200,contains,THE-ICONIC,The Iconic,Shopping,Discretionary,confirmed,Shopping
+1,200,contains,THE ICONIC,The Iconic,Shopping,Discretionary,confirmed,Shopping
+1,200,contains,TEMU,Temu,Shopping,Discretionary,confirmed,Shopping
+1,200,contains,PATAGONIA,Patagonia,Shopping,Discretionary,confirmed,Apparel
+1,200,contains,MILLIGRAM,Milligram,Shopping,Discretionary,confirmed,Stationery / shopping
+1,210,contains,LAVERTY PATHOLOGY,Laverty Pathology,Health & Pharmacy,Essential,confirmed,Pathology
+1,210,contains,RAINBOWMEDICINE,Rainbow Medicine,Health & Pharmacy,Essential,confirmed,Medical
+1,210,contains,QUEEN AND BOURKE PHARM,Queen & Bourke Pharmacy,Health & Pharmacy,Essential,confirmed,Pharmacy
+1,200,contains,BEAUTYFASCIA,BeautyFascia,Beauty & Personal Care,Discretionary,confirmed,Beauty
+1,200,contains,AUSTRALIANSKINCLINICS,Australian Skin Clinics,Beauty & Personal Care,Discretionary,confirmed,Beauty / skin
+1,190,contains,THINK AGAIN LASER,Think Again Laser,Beauty & Personal Care,Irregular,suggested,Confirm whether cosmetic or medical
+1,180,contains,CUTS AVENUE,Cuts Avenue,Beauty & Personal Care,Discretionary,suggested,Likely hair / personal care
+1,220,contains,AIRBNB,Airbnb,Travel,Irregular,confirmed,Accommodation
+1,210,contains,AIRPORTRENTALS,AirportRentals.com,Travel,Irregular,confirmed,Rental car / travel
+1,210,contains,MANTRA 2 BOND,Mantra,Travel,Irregular,confirmed,Accommodation
+1,210,contains,SEALINK TASMANIA,SeaLink Tasmania,Travel,Irregular,confirmed,Travel / ferry
+1,220,contains,IELTS,IELTS,Education & Professional,Work/Admin,confirmed,Exam / professional admin
+1,220,contains,THE UNI OF SYDNEY,University of Sydney,Education & Professional,Work/Admin,confirmed,University expense
+1,220,contains,WORLDWIDE INTERPRETERS,Worldwide Interpreters,Education & Professional,Work/Admin,suggested,Confirm personal vs professional/admin
+1,220,contains,OZBARCODES,OzBarcodes,Education & Professional,Work/Admin,suggested,Professional/business-like expense
+1,220,contains,GS1 US,GS1 US,Education & Professional,Work/Admin,suggested,Professional/business-like expense
+1,220,contains,KWIK KOPY,Kwik Kopy,Education & Professional,Work/Admin,suggested,Printing; confirm personal vs professional
+1,210,contains,AMZNPRIMEA,Amazon Prime,Subscriptions & Donations,Discretionary,confirmed,Amazon Prime
+1,190,contains,GOOGLE CLAUDE BY ANTH,Claude,Subscriptions & Donations,Discretionary,suggested,Likely Claude subscription; confirm
+1,200,contains,NSW NATIONAL PARKS,NSW National Parks,Entertainment & Experiences,Irregular,confirmed,Recreation
+1,200,contains,SNSW*NSW PARKS,NSW National Parks,Entertainment & Experiences,Irregular,confirmed,Recreation
+1,180,contains,DEE WHY LIBRARY,Dee Why Library,Government & Admin,Irregular,suggested,Library fee / printing
