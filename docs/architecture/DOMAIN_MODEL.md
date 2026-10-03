@@ -1,6 +1,6 @@
 # Ledgerase Domain Model
 
-This document currently defines Money, Transaction, Account, and Merchant.
+This document currently defines Money, Transaction, Account, Merchant, and Category.
 
 ## Money
 
@@ -507,7 +507,7 @@ canonical names or public merchant metadata.
 ### Not handled yet
 
 - Resolver algorithms, confidence thresholds, MerchantRule structures, or review UI.
-- Category definitions, category assignment, or budgeting logic.
+- Category assignment rules or budgeting logic.
 - A general counterparty/contact model or formal brand/outlet/service hierarchy.
 - Remote merchant catalogs, enrichment, synchronization, or shared alias publication.
 - Concrete APIs, database schemas, or correction-history storage formats.
@@ -520,3 +520,178 @@ canonical names or public merchant metadata.
 - Which brand/outlet/service relationships need representation in v0.1?
 - How will merge history, surviving identities, and split reassignment remain
   traceable without losing prior user decisions?
+
+## Category
+
+Category is Ledgerase's canonical, user-visible classification of a Transaction's
+economic purpose or nature for the household. Examples include Groceries,
+Dining, Transport, Salary, and Utilities; these illustrate meaning rather than
+define a complete taxonomy.
+
+Category does not identify a Merchant, interpret an Account balance change,
+confirm a transfer or refund, or determine budgeting treatment. It does not
+represent an amount, budget limit, or classification rule.
+
+### Identity and user-visible name
+
+Each Category has a stable, unique internal identity and a required, non-empty
+user-visible name. Names are editable presentation, not identity keys. Equal
+names do not prove that two Categories have the same intended meaning.
+
+### Relationship to Transaction
+
+A Category may be associated with zero or more Transactions. In v0.1, a
+Transaction has zero or one established Category association, independently
+editable from its Merchant association. Assignments belong to Transactions,
+not inherently to Merchants.
+
+Establishing or correcting an assignment preserves Transaction identity, Money,
+dates, Account, raw descriptions, and source observations. Category assignment
+does not require a resolved Merchant.
+
+### Uncategorized, suggested, and confirmed assignments
+
+Uncategorized is valid: a Transaction with no established Category remains
+unclassified. Do not create a fake "Unknown" Category to satisfy the relationship.
+
+Confidence and confirmation describe the assignment, not the Category itself.
+Distinguish unresolved assignments, tentative suggestions, assignments established
+automatically from sufficient evidence, and user-confirmed decisions. Weak
+suggestions remain tentative and visible for review; an automatic assignment
+must not be presented as user confirmation.
+
+### Correction precedence and scope
+
+User-confirmed assignments have highest precedence. Later automatic classification
+must not silently replace them; conflicting suggestions require visible review.
+A deliberate user correction may replace a previous decision.
+
+A correction applies only to its stated scope. Reusing it for other or future
+Transactions requires an explicit rule or scope; correcting one purchase must
+not universally categorize every similar descriptor or Merchant. No CategoryRule
+model or classifier is defined here.
+
+### Independence from Merchant and merchant type
+
+Merchant answers who a Transaction was associated with; Category answers what
+it was economically for. The same Merchant may appear under multiple Categories,
+and different Merchants may share one Category.
+
+A Costco Transaction may be Groceries or another purpose. An established Costco
+Gas purchase may be Transport/Fuel, but neither its name nor its merchant type
+constitutes the category decision. Merchant identity and type may later supply
+evidence for a suggestion; they never inherently determine the assignment.
+Merchant renames, merges, splits, and corrections preserve independent category
+decisions unless a separate category correction is deliberately made.
+
+### Independence from budget character
+
+Essential, discretionary, irregular, and work/admin treatment are separate
+dimensions, not intrinsic Category identities or mandatory Category properties.
+Dining might receive discretionary treatment; Medical might be essential or
+irregular; Transport may receive different treatment depending on context.
+
+Such treatment can vary without changing Category identity or the Transaction's
+category assignment. Budget and BudgetCharacter are not defined here.
+
+### System-provided and user-created Categories
+
+Categories may originate from a small system-provided starting set or be created
+by the user. Both follow the same identity, assignment, and lifecycle semantics.
+Origin does not establish an assignment's confidence or authority over user
+decisions.
+
+System-provided Categories may be renamed or archived locally. Later default
+catalog changes must not silently replace user names or historical assignments.
+No comprehensive starting taxonomy or catalog update mechanism is defined here.
+
+### Rename and archive semantics
+
+Renaming changes presentation while preserving identity and historical
+associations. It must not disguise a change in economic meaning: a different
+purpose should use a distinct Category rather than repurpose an existing one
+and reinterpret history.
+
+A Category is active or archived. Archiving removes it from routine future
+assignment while preserving its identity and historical references; it must not
+erase or reassign Transactions. Referenced Categories must not be destructively
+deleted. Reactivation preserves identity, and historical corrections remain
+possible without silently reactivating the Category.
+
+### Income, expenses, and Transaction sign
+
+Categories can describe income purposes, such as Salary or Interest, and spending
+purposes, such as Groceries or Utilities. They do not impose a required sign on
+their associated Transactions.
+
+Positive and negative amounts describe Account balance increases and decreases.
+A positive amount may be salary, a refund, reimbursement, transfer, interest, or
+correction; a negative amount may be a purchase, fee, transfer, tax, or withdrawal.
+Neither sign, including zero, establishes a Category or reporting treatment.
+Economic meaning requires evidence or an explicit user decision beyond sign.
+
+### Transfers
+
+A confirmed internal transfer normally has no income/spending Category. Its
+transfer meaning remains a separate Transaction distinction, outside Category;
+no additional transfer model is introduced.
+
+Exclusion from household income and spending follows that confirmed meaning,
+not a category label or absence of one. Removing a Category does not confirm a
+transfer, and recognizing a transfer must not silently erase a user-confirmed
+assignment. Transfer fees remain distinct expenses that may be categorized.
+
+### Refunds
+
+A known purchase refund remains a separate positive Transaction that reverses
+spending, rather than automatically becoming income. When its original purchase
+relationship is established, the refund may use or reference that purchase's
+Category, allowing the same purpose to describe both purchase and reversal.
+
+The refund's assignment remains independently editable. Its link to a purchase
+does not mandate inheritance or propagate later category corrections silently.
+With no established purchase or category evidence, the refund may remain
+uncategorized. No automatic refund matching or reporting/netting algorithm is
+defined here.
+
+### v0.1 hierarchy and split treatment
+
+Categories are flat in v0.1; parent-child relationships and roll-up semantics are
+deferred. The current model needs only direct Transaction assignments, without
+parent assignment or hierarchy rules.
+
+A Transaction has at most one established Category. Splitting its amount across
+multiple Categories is deferred. Mixed purchases may use one explicitly chosen
+Category or remain uncategorized; do not invent additional Transactions or
+duplicate amounts to simulate split classification.
+
+### Invariants
+
+- Stable identity, a non-empty user-visible name, and active/archived status are required.
+- v0.1 Transactions have zero or one established Category association.
+- Unknown and tentative suggestions remain distinct from established assignments
+  and user confirmation; no placeholder Category is required.
+- User-confirmed decisions take precedence within their explicit scope.
+- Assignment remains independent of Merchant identity/type, Transaction sign,
+  and budget treatment.
+- Rename, archive, and reactivation preserve identity and historical associations.
+- Category corrections preserve financial facts and raw source evidence.
+- Confirmed internal transfers remain neither income nor spending; known refunds
+  retain their separate reversal meaning regardless of category assignment.
+
+### Not handled yet
+
+- Categorization algorithms, reusable rule models, confidence thresholds, or review UI.
+- Split allocations, category hierarchy, or roll-up/reporting calculations.
+- A complete default taxonomy, localized naming policy, or catalog migration scheme.
+- Budget/BudgetCharacter, household ownership, or other related domain models.
+- Concrete APIs, persistence schemas, or assignment-history storage formats.
+
+### Open questions
+
+- What internal identifier format and system-origin metadata will be used?
+- How will assignment evidence, confirmation, correction scope, and history be
+  represented?
+- What small default set and localized naming conventions should v0.1 provide?
+- How will explicit historical corrections or refunds use archived Categories
+  while preserving archive intent and user decisions?

@@ -1,4 +1,3 @@
-
 # AqchaFold / Ledgerase Development Plan
 
 Goal: ship a local-first Ledgerase app that Bulat and Emily can actually
@@ -17,12 +16,12 @@ Do not start later phases early.
 - [X] Choose public product name: Ledgerase
 - [X] Define high-level architecture
 - [X] Add root AGENTS.md
-- [ ] Create DOMAIN_MODEL.md
-- [ ] Define Money
-- [ ] Define Transaction
-- [ ] Define Account
-- [ ] Define Merchant
-- [ ] Define Category
+- [X] Create DOMAIN_MODEL.md
+- [X] Define Money
+- [X] Define Transaction
+- [X] Define Account
+- [X] Define Merchant
+- [X] Define Category
 - [ ] Define Household and Member
 - [ ] Define Import
 - [ ] Define Receipt and ReceiptItem
