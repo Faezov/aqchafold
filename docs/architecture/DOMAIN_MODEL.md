@@ -1,6 +1,6 @@
 # Ledgerase Domain Model
 
-This document currently defines the Money, Transaction, and Account concepts.
+This document currently defines Money, Transaction, Account, and Merchant.
 
 ## Money
 
@@ -126,7 +126,8 @@ Merchant and category references are independently optional: merchant identity
 and spending classification are different decisions. A missing reference means
 unresolved or unclassified, not a confirmed match. Uncertain suggestions remain
 visible for review, and user-confirmed decisions override automatic suggestions.
-Neither related concept is defined here.
+Merchant and Category are separate domain concepts defined independently from
+Transaction.
 
 ### Source and import relationship
 
@@ -356,3 +357,166 @@ limits are separate from the posted balance.
 - How will individual/shared ownership be expressed when Household and Member
   are defined?
 - How will confirmed closure and late postings be recorded without losing history?
+
+## Merchant
+
+Merchant is Ledgerase's canonical identity for an established commercial merchant
+or recognizable organizational payee or payer. This includes retailers, service
+providers (including sole traders acting commercially), utilities, government
+agencies, and employers, irrespective of Transaction sign.
+
+It does not represent a transaction description, spending Category, ownership,
+or every possible counterparty. Generic personal contacts and the user's own
+accounts are outside this boundary; no separate Counterparty model is defined.
+
+### Identity and canonical display name
+
+Each Merchant has a stable, unique internal identity and a required, non-empty
+canonical display name. Names need not be unique and do not establish identity.
+Renaming the display label or adding an alias preserves Merchant identity and
+does not rewrite historical Transactions. External identifiers, if retained,
+are supporting evidence rather than the internal identity.
+
+### Relationship to Transaction and Category
+
+A Merchant can be associated with zero or more Transactions. A Transaction may
+have no established Merchant relationship; tentative candidates must remain
+distinguishable from an accepted identity match.
+
+Merchant identity never inherently assigns a Category. Identifying Costco does
+not determine whether a purchase was groceries, fuel, pharmacy, or something
+else. Establishing or correcting a Merchant must not silently change a
+Transaction's independent category decision or financial facts.
+
+### Descriptors and canonical identity
+
+- Raw transaction description: the original source evidence retained by
+  Transaction and its provenance; it is never replaced by resolution results.
+- Normalized descriptor: a derived representation that can aid comparison while
+  retaining a link to its source. It can be ambiguous and is not an identity key.
+- Canonical Merchant: the established entity referenced by a stable internal
+  identity, with a separate display name.
+
+Conceptually: raw descriptor → normalized descriptor → candidate or confirmed
+Merchant. This describes distinct meanings, not a concrete resolver pipeline.
+Neither normalization nor similar normalized text proves that two observations
+refer to the same Merchant.
+
+### Aliases and known descriptor variants
+
+A Merchant may have known name or descriptor variants. Aliases retain their
+supporting evidence and any relevant source or context; they need not be unique
+across Merchants. Adding a variant does not prove every occurrence matches,
+automatically merge entities, or retroactively reassign Transactions.
+Ambiguous variants remain available for review.
+
+### Confidence, confirmation, and unknowns
+
+Confidence and confirmation describe a Transaction/descriptor-to-Merchant
+association supported by evidence, not blanket certainty about every sighting
+of a Merchant. Distinguish an unresolved association, a tentative suggestion,
+an identification supported automatically by evidence, and a user-confirmed
+decision. An automatic match must not be presented as user confirmation.
+
+Unknown is valid: with insufficient evidence, retain no established Merchant
+relationship and make uncertainty visible for review. Do not create a catch-all
+"Unknown" Merchant or promote a weak candidate to a confirmed identity. One
+confirmed association does not confirm all similar descriptors or aliases.
+
+### User confirmation and correction precedence
+
+User-confirmed identity decisions have highest precedence. Later automatic
+identification must not silently replace them; conflicting evidence requires
+visible review. A deliberate user correction can replace an earlier decision.
+
+A correction applies to its stated scope. Applying it to other Transactions or
+future descriptor variants requires an explicit reusable scope, rather than
+silently treating one confirmation as universal. This is a domain requirement;
+no MerchantRule model or matching algorithm is defined here.
+
+### Chains, outlets, services, and intermediaries
+
+Use the level of identity supported by evidence: a chain/brand, a particular
+outlet, or a distinct service. Brand-only evidence must not invent a location.
+Shared branding must not collapse independently established outlets or services.
+`COSTCO` and `COSTCO GAS` must not be merged merely because the names are similar;
+preserve the service distinction until their intended identity scope is established.
+
+Suburb, terminal, order, and location fragments may be noise or distinguishing
+evidence. They are not universally disposable. Preserve them in source provenance
+even when a normalized descriptor omits them.
+
+PayPal, Square, Stripe, or HungryPanda may appear as intermediaries. Their names
+alone do not establish the underlying seller. Keep intermediary evidence in
+provenance and leave that seller unresolved when unknown. A processor or platform
+can itself be the Merchant when evidence identifies it as the relevant provider,
+such as for its own service fee. The role depends on the observed transaction.
+
+### Merge and split semantics
+
+A merge corrects duplicate Merchant identities only when evidence establishes
+the same entity at the same intended scope. It retains a surviving identity and
+traceability of the previous identities and affected associations. Similar names,
+aliases, or shared branding alone are insufficient. Changes affecting confirmed
+user decisions require explicit review and correction.
+
+A split corrects an overly broad or mistaken grouping by establishing distinct
+identities and reassigning only associations supported by evidence or explicit
+user decisions. Uncertain associations remain unresolved for review; they must
+not be distributed by guesswork. Preserve the history of the correction.
+
+Merges and splits may deliberately change Merchant associations, but preserve
+Transaction identities, amounts, dates, Accounts, raw descriptions, source
+observations, and independent category decisions. Renaming is neither a merge
+nor a split.
+
+### Optional metadata and merchant type
+
+Optional metadata may include a trading/legal name, website, country, established
+location or service label, brand affiliation, or scoped external identifier.
+Retain the source and uncertainty of such metadata; none is required to create
+an established Merchant identity or permits inventing missing details.
+
+An optional merchant type describes the entity, such as cafe, retailer, utility,
+public agency, or employer. It may be unknown and must not dictate a Transaction's
+Category, budget treatment, or economic classification. No type taxonomy,
+institution hierarchy, or automatic enrichment service is defined here.
+
+### Privacy and provenance
+
+Merchant associations, variants, confirmations, and corrections must retain
+enough evidence to explain their origin without replacing Transaction provenance.
+Financially derived aliases, locations, and confirmation history remain local;
+they must not be assumed safe for publication, logging, or external transmission.
+Avoid copying account/card identifiers or complete financial descriptions into
+canonical names or public merchant metadata.
+
+### Invariants
+
+- Stable internal identity and a non-empty canonical display name are required.
+- Names, aliases, and external identifiers alone do not prove identity or uniqueness.
+- Raw source evidence survives normalization, confirmation, correction, and merging.
+- Unresolved and tentative associations remain distinguishable from established
+  matches and user-confirmed decisions.
+- User-confirmed identity takes precedence within its explicit scope.
+- Identity and merchant type remain independent of Transaction Category and sign.
+- Presentation changes do not change identity or reassign historical Transactions.
+- Merge/split corrections retain traceability and preserve financial facts and
+  independent category decisions.
+
+### Not handled yet
+
+- Resolver algorithms, confidence thresholds, MerchantRule structures, or review UI.
+- Category definitions, category assignment, or budgeting logic.
+- A general counterparty/contact model or formal brand/outlet/service hierarchy.
+- Remote merchant catalogs, enrichment, synchronization, or shared alias publication.
+- Concrete APIs, database schemas, or correction-history storage formats.
+
+### Open questions
+
+- What internal identifier format and external identifier scoping will be used?
+- How will association evidence, confirmation scope, and conflicting corrections
+  be represented?
+- Which brand/outlet/service relationships need representation in v0.1?
+- How will merge history, surviving identities, and split reassignment remain
+  traceable without losing prior user decisions?
