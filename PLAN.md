@@ -22,8 +22,8 @@ Do not start later phases early.
 - [X] Define Account
 - [X] Define Merchant
 - [X] Define Category
-- [ ] Define Household and Member
-- [ ] Define Import
+- [X] Define Household and Member
+- [X] Define Import
 - [ ] Define Receipt and ReceiptItem
 - [ ] Define Budget
 

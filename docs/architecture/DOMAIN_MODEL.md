@@ -1,7 +1,7 @@
 # Ledgerase Domain Model
 
 This document currently defines Money, Transaction, Account, Merchant, Category,
-Household, and Member.
+Household, Member, and Import.
 
 ## Money
 
@@ -147,8 +147,7 @@ Each imported observation may identify:
 Import identity describes an ingestion event, not the financial movement's
 identity. Overlapping imports can contribute observations to the same Transaction;
 their provenance must be preserved without creating an additional financial
-effect once duplication is confirmed. No observation or import model is defined
-here.
+effect once duplication is confirmed. No source observation model is defined here.
 
 ### Transfers
 
@@ -867,3 +866,205 @@ logs, analytics, publication, or external transmission.
 - How will archival/reactivation and explicit ownership corrections retain history?
 - How should archived Members appear during deliberate historical corrections
   without returning them to routine current selection?
+
+## Import
+
+Import represents one ingestion event in which Ledgerase attempts to interpret an
+external financial source and incorporate its observations into the local
+Household ledger. It is not the source artifact, a financial movement, or proof
+that extracted data is correct. It does not define an importer or parser contract.
+
+### Identity, Household, and timing
+
+Each Import has a stable, unique internal identity and belongs to exactly one
+Household. Its identity is independent of source artifact, Account, and Transaction
+identities. Re-importing or deliberately reprocessing a source creates a new Import
+and preserves the earlier attempt and its evidence.
+
+Account associations and resulting Transactions must share the Import's Household
+context. In v0.1, an Import concerns one source artifact. Creation, attempt, and
+completion timing may explain ingestion history; these are distinct from source
+statement periods and Transaction posting or transaction dates.
+
+### Source artifact and parser provenance
+
+Distinguish source kind, such as a bank statement or exported transaction data,
+from format, such as PDF or CSV. Institution and format evidence may be incomplete
+or unsupported; Import makes no CommBank-specific assumptions.
+
+An optional original filename or display label helps identify the source to the
+user but does not establish artifact identity. A content fingerprint/hash, with
+its method identified when available, provides evidence of an exact source repeat.
+Missing fingerprints remain explicit. Different bytes may still describe the same
+movements; a fingerprint is not a general Transaction duplicate detector.
+
+Retain the identity and version of the source adapter/parser that produced results
+when used, so extraction can be explained after parsing behavior changes. Failed
+format detection may have no identified parser; do not invent provenance.
+Reprocessing retains earlier results and exposes conflicts rather than silently
+replacing financial facts or user-confirmed decisions.
+
+### Source Account evidence and matching
+
+Source account/card identifiers, including masked identifiers, account labels,
+institution information, and currency are matching evidence, not Ledgerase's
+internal Account identity or proof of Member ownership. Preserve uncertainty and
+distinguish candidate matches from a confirmed Account association.
+
+A supported v0.1 single-account statement Import has zero or one confirmed Account
+association: zero while unknown or ambiguous. No observation can become an
+accepted canonical Transaction without its required, confirmed Account context
+and compatible Account currency; do not guess an Account or perform implicit FX.
+
+Multi-account sources are outside initial v0.1 support. Preserve their distinct
+Account evidence and useful extraction with the limitation explicit; never combine
+accounts or select the first to fit this restriction. Future observation-level
+Account associations can extend support without redefining Import identity.
+
+### Observations and canonical Transactions
+
+An Import contributes zero or more source observations. Each observed record must
+be traceable to its Import, source locator such as page/row/record position, original
+extracted text and values, and any source-provided transaction identifier. Keep
+reconstructed or inferred fields and their uncertainty distinct from direct
+extraction. This establishes provenance requirements, not a SourceObservation model.
+
+An observation may remain unresolved or contribute accepted evidence to a new or
+existing canonical Transaction. Extraction does not automatically create a
+Transaction. One Transaction may retain observations from multiple Imports;
+confirmed repeat observations reuse its identity without another financial effect.
+Imported evidence linked to a manual Transaction preserves its manual origin.
+
+### Exact repeats, overlap, and duplicate boundaries
+
+- The same PDF imported twice produces two Imports with evidence of the same
+  artifact. A fingerprint match does not establish that either attempt parsed it
+  correctly or authorize another financial effect.
+- January and January-February statements are different artifacts with potentially
+  overlapping movements. Confirmed overlaps retain both Imports' provenance and
+  reuse existing Transaction identities.
+- Two purchases with the same Account, date, amount, and Merchant may be distinct
+  movements. Similar fields provide duplicate candidates, not proof of identity.
+
+Source repetition and Transaction duplication remain separate decisions. Ambiguous
+matches stay explicit for review; do not silently merge, delete, or incorporate
+them as certain new movements. Parser version changes do not establish a new
+financial movement or authorize overwriting prior evidence.
+
+### Processing, incorporation, and review
+
+Processing state distinguishes pending, processing, completed, and failed attempts.
+Completed means processing ended normally, not that every record was interpreted,
+incorporated, or financially verified. Partial coverage is recorded separately.
+
+Keep the following independently distinguishable:
+
+- Direct extraction versus reconstructed, uncertain, unsupported, or failed fields
+  and records.
+- Unknown/candidate versus confirmed Account association.
+- Unresolved duplicate candidates versus confirmed repeat or distinct movements.
+- Reconciliation not checked, unavailable/insufficient evidence, passed, or failed,
+  with the checked scope and reasons.
+- Observations accepted into new Transactions, linked to existing Transactions,
+  or not yet accepted; and outstanding reasons for user review.
+
+Processing completion, incorporation, and a passed balance check must not hide
+uncertainty elsewhere. "Imported" never implies complete financial certainty.
+
+### Source periods and balance evidence
+
+Preserve a supplied statement period/date range separately from observed record
+coverage. Missing periods, gaps, and incomplete coverage remain explicit; the
+earliest and latest extracted dates do not prove a complete source period.
+
+Supplied opening, running, and closing balances remain source evidence associated
+with the Import and observations. Retain original notation, currency, relevant
+date/source position, and any canonical interpretation or reconstruction. Normalize
+source liability notation only with established meaning, preserving the original.
+
+Validated source balances may contribute to Account balance evidence. An imported
+closing balance does not automatically become a verified current Account balance.
+Missing balance evidence is unknown, not zero.
+
+### Reconciliation and verification
+
+Where sufficient evidence exists, checks can validate:
+
+```text
+previous balance + Transaction amount = resulting balance
+opening balance + canonical posted movements = closing balance
+```
+
+Use canonical Account signs, Money invariants, and the movements within the checked
+source scope. Include movements already represented by earlier Imports, not only
+newly created Transactions; count each covered movement once for that scope rather
+than adding another ledger effect for each observation.
+
+A pass establishes balance agreement only within its evidenced scope. It does not
+prove Account matching, completeness beyond that scope, absence of duplicates,
+every reconstructed field, or completion of review. Unavailable checks are not
+passes. Failures preserve evidence, identify affected scope/records for review,
+and remain explicit. Never change amounts, signs, dates, or balances merely to force
+reconciliation. No reconciliation algorithm is defined here.
+
+### Partial and failed attempts
+
+An Import may retain usable accepted observations alongside uncertain, unsupported,
+or failed records. Do not discard all useful extraction because one record fails,
+or present partial results as fully verified. Acceptance must satisfy existing
+Transaction invariants and retain relevant verification limitations and review
+requirements; processing completion alone is insufficient.
+
+A failed attempt retains available source metadata, observations, and diagnostic
+reasons. Failure does not imply nothing was extracted or previously accepted.
+A later retry/reprocessing event preserves earlier provenance and does not erase
+accepted Transactions. Retry infrastructure and rollback policy are not defined here.
+
+### Retention and privacy
+
+Keeping the original PDF/CSV is optional and local, subject to an explicit retention
+choice. Distinguish a retained artifact from one discarded or unavailable. Canonical
+records must remain usable without it: preserve explanatory source metadata,
+fingerprint when available, record locators, original descriptions/extracted values,
+reconstruction evidence, and uncertainty. A fingerprint alone is insufficient.
+Discarding the artifact must not discard Transaction provenance; reprocessing the
+original requires access to it again.
+
+Treat source files, filenames, local locations, fingerprints, Account evidence,
+balances, descriptions, and diagnostics as sensitive local financial data. Keep
+them out of ordinary logs, analytics, public fixture filenames, and external
+services. Real user sources remain private and outside the repository; synthetic
+development fixtures are separate from user Import records.
+
+### Invariants
+
+- Stable Import identity and one Household context are required.
+- Attempt identity, source artifact evidence, and financial movement identity remain
+  distinct; repeat ingestion does not create another effect for a confirmed movement.
+- Accepted Transactions retain their existing Account, date, Money, and identity
+  invariants; unresolved observations need not become Transactions.
+- Account/Transaction associations cannot silently cross Household boundaries.
+- Original evidence survives normalization, reconstruction, duplicate resolution,
+  and optional raw artifact disposal.
+- Processing, acceptance, uncertainty, Account confirmation, duplicate resolution,
+  reconciliation, and review remain distinguishable.
+- Partial and failed attempts preserve available evidence and explicit limitations;
+  reconciliation is evidence, never permission to repair financial values.
+
+### Not handled yet
+
+- Importer interfaces, parser classes, bank-specific formats, or matching algorithms.
+- Duplicate detection/reconciliation algorithms or a full SourceObservation model.
+- Receipt/ReceiptItem, OCR, Budget, or other related domain models.
+- Multi-account source processing, retry infrastructure, or concrete rollback policy.
+- Database schemas, retention UI, cloud storage, synchronization, or remote processing.
+
+### Open questions
+
+- What identifier and fingerprint methods will be used, and how will unavailable
+  artifact identity be represented?
+- How will processing coverage, check scopes, acceptance, and review reasons be
+  represented without collapsing them into one status?
+- What explicit review/acceptance policy should apply to partial or unreconciled data?
+- What local raw-source retention default should v0.1 offer, and how will parser
+  conflicts and deliberate corrections retain their history?
