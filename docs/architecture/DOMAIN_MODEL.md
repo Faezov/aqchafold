@@ -1,6 +1,6 @@
 # Ledgerase Domain Model
 
-This document currently defines the Money and Transaction concepts.
+This document currently defines the Money, Transaction, and Account concepts.
 
 ## Money
 
@@ -29,8 +29,8 @@ uses 100 minor units per dollar.
 ### Signs
 
 Money may be positive, negative, or zero. Money itself assigns no inflow/outflow
-semantics to these signs. Transaction defines the cash-flow sign convention
-below.
+semantics to these signs. Transaction defines signs by their effect on the
+referenced Account's canonical balance.
 
 ### Invariants
 
@@ -95,15 +95,20 @@ acceptance; any reconstruction must be recorded in provenance.
 ### Money amount and sign convention
 
 Each Transaction has one Money amount, including its explicit currency and all
-Money invariants. Signs describe cash flow relative to the referenced account:
+Money invariants. Signs describe the effect on the referenced Account's canonical
+balance:
 
-- Positive: inflow to the account.
-- Negative: outflow from the account.
-- Zero: neither inflow nor outflow; preserve legitimate zero-value source records.
+- Positive: increases the canonical balance.
+- Negative: decreases the canonical balance.
+- Zero: leaves the canonical balance unchanged; preserve legitimate zero-value
+  source records.
 
-Importers convert source debit/credit notation at ingestion. For example, an
-AUD 12.34 purchase has `amountMinor = -1234`; an incoming AUD 12.34 payment has
-`amountMinor = 1234`. Sign alone does not establish income or expense classification.
+Importers convert source debit/credit notation to this convention at ingestion.
+For example, an AUD 12.34 purchase has `amountMinor = -1234`; an incoming
+AUD 12.34 payment has `amountMinor = 1234`.
+
+Income, expense, transfer, refund, purchase, and repayment are separate economic
+classifications and must not be inferred from sign alone.
 
 ### Raw description and provenance
 
@@ -179,7 +184,7 @@ without silent merging, deletion, or claims that the import is fully verified.
 
 - Internal identity, account reference, posting date, and valid Money are required.
 - Dates are valid calendar dates; their meanings stay distinct even when equal.
-- Signs follow the account-relative convention consistently across sources.
+- Signs describe canonical Account balance changes consistently across sources.
 - Imported origin and raw provenance survive normalization and correction.
 - Optional relationships never manufacture certainty or override confirmed choices.
 - Reconciliation failures and uncertain extracted fields remain explicit, with
@@ -200,5 +205,154 @@ without silent merging, deletion, or claims that the import is fully verified.
 - What internal identifier format and source identifier scoping will be used?
 - How will transfer/refund links and confirmation or review state be represented?
 - Which evidence is sufficient to confirm duplicates across overlapping imports?
-- How will the account-relative sign convention map to liability accounts when
-  Account is defined?
+
+## Account
+
+Account represents a tracked place where the user holds money or owes money in
+Ledgerase. It groups posted Transactions and provides the context for their
+currency and balance meaning. It need not be provided by a bank.
+
+### Identity and user-visible label
+
+Each Account has a stable, unique internal identity and a required, non-empty
+user-visible name or label. Labels are editable and need not be unique. Renaming
+an account or changing its source identifiers does not change its identity or
+its Transaction relationships.
+
+### Institution and external identifiers
+
+An Account may reference its financial institution conceptually, without assuming
+CommBank or any particular country. Cash accounts need no institution. This
+section does not define an Institution model or require an institution registry.
+
+Optional external identifiers may help associate imported statements with an
+Account. They are scoped to their institution/source and may be absent, masked,
+ambiguous, or changed. Account numbers, card numbers, and source identifiers must
+not serve as the internal identity. Ambiguous account matches require review;
+source identifiers remain sensitive local provenance.
+
+### Account type
+
+Type describes the account's role, not a mandatory balance sign.
+
+| Type | Meaning |
+| --- | --- |
+| Transaction/checking | Everyday deposits, payments, and transfers. |
+| Savings | Money held primarily for saving. |
+| Credit card / liability | Amounts owed, with possible repayments or credit balances. |
+| Cash | Physical cash tracked through manual or other evidenced entries. |
+| Other | An unfamiliar type whose original label is retained for review. |
+
+Add explicit types when an implemented use case needs them. Do not force unknown
+source types into an existing type or infer their balance meaning from the label.
+
+### Ownership and household relationship
+
+An Account belongs conceptually to the local household ledger. Ownership may be
+individual or shared, and must not assume a single signed-in user. This states
+relationships only; Household, Member, and ownership allocation are not defined
+here.
+
+### Status
+
+An Account is active or closed. Closure preserves identity, history, and known
+balances; it neither deletes Transactions nor implies a zero balance. Historical
+imports and corrections remain possible for closed accounts. Unexpected activity
+after closure requires review.
+
+### Currency and Transaction relationship
+
+Each Account has one explicit primary currency. In v0.1, every canonical
+Transaction amount and balance for that Account must use that currency. An
+Account can have zero or more Transactions; each Transaction references exactly
+one Account, including each observed side of a transfer.
+
+A foreign-currency purchase may retain its original amount in provenance, but
+its canonical Transaction uses the evidenced posted amount in account currency.
+If that amount is unavailable or the currencies conflict, preserve the extracted
+data and report the issue for review; do not invent an exchange rate or silently
+accept a mixed-currency posting. Different Accounts may use different currencies.
+Multi-currency accounts are deferred.
+
+### Balance semantics
+
+A canonical posted balance is Money representing the user's signed financial
+position in the Account:
+
+- Positive: money held or value owed to the user.
+- Negative: money owed by the user; its magnitude is the debt amount.
+- Zero: neither a credit position nor debt.
+
+Transaction amount signs describe changes to the canonical balance; balance signs
+describe the resulting financial position. For a complete sequence of same-currency
+posted movements:
+
+```text
+previous balance + signed Transaction amount = resulting balance
+```
+
+This equation applies to asset and liability accounts with the same sign
+semantics. A negative purchase decreases the canonical balance: it reduces funds
+or credit and may create or increase debt. A positive card repayment or refund
+increases the balance: it reduces debt or adds credit. Economic classification
+must be established separately from the sign's balance effect.
+
+Examples below use AUD integer minor units:
+
+| Account / movement | Previous balance | Transaction amount | Resulting balance |
+| --- | ---: | ---: | ---: |
+| Checking purchase | 10000 | -2000 | 8000 |
+| Credit-card purchase | -10000 | -2000 | -12000 |
+| Credit-card repayment | -12000 | 5000 | -7000 |
+| Credit-card overpayment | -1000 | 1500 | 500 |
+
+An overdrawn asset account can be negative; an overpaid credit card can be
+positive. Type does not change automatically when a balance crosses zero.
+A card repayment transfer is negative on the paying account and positive on the
+card account; it is not income or new spending.
+
+Sources may present debt as a positive "amount owed." Importers normalize that
+notation to a negative canonical balance while preserving the original evidence.
+An uncertain source balance meaning requires review, not a guessed sign change.
+User-facing debt labels may show its magnitude without changing canonical values.
+
+### Known and derived balances
+
+A known balance needs an as-of date or source position, provenance, and explicit
+verification status. An Account may have no known balance; unknown is not zero.
+The latest observed statement balance is not necessarily a current balance.
+
+A derived balance requires an evidenced opening balance and a complete,
+deduplicated sequence of subsequent posted Transactions through the stated
+position. Partial history or failed reconciliation must remain visible and must
+not be presented as a verified current balance. Available funds and credit
+limits are separate from the posted balance.
+
+### Invariants
+
+- Stable identity, non-empty label, type, status, and primary currency are required.
+- All posted amounts and balances obey Money's safe-integer and currency rules.
+- v0.1 Transactions and balances match their Account's primary currency.
+- Balance meaning and arithmetic are consistent across asset and liability types.
+- Neither account type nor status imposes a fixed balance sign or a zero balance.
+- External identifiers and labels do not establish internal identity by themselves.
+- Ownership relationships, source evidence, and historical Transactions survive
+  renaming and closure.
+- Missing baselines, ambiguous source meanings, and reconciliation failures remain
+  explicit; financial values must not be altered to make balances agree.
+
+### Not handled yet
+
+- Multi-currency accounts, currency conversion, or totals across currencies.
+- Available balances, pending holds, credit limits, interest schedules, or debt planning.
+- Bank connections, institution metadata management, or account matching algorithms.
+- Ownership shares, permissions, synchronization, or related domain models.
+- Balance storage strategy, reconciliation algorithms, concrete APIs, or schemas.
+
+### Open questions
+
+- What internal identifier format and external identifier scoping will be used?
+- How will known balances, their as-of positions, and verification be represented?
+- How will individual/shared ownership be expressed when Household and Member
+  are defined?
+- How will confirmed closure and late postings be recorded without losing history?
