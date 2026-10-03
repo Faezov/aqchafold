@@ -1,6 +1,7 @@
 # Ledgerase Domain Model
 
-This document currently defines Money, Transaction, Account, Merchant, and Category.
+This document currently defines Money, Transaction, Account, Merchant, Category,
+Household, and Member.
 
 ## Money
 
@@ -249,10 +250,10 @@ source types into an existing type or infer their balance meaning from the label
 
 ### Ownership and household relationship
 
-An Account belongs conceptually to the local household ledger. Ownership may be
-individual or shared, and must not assume a single signed-in user. This states
-relationships only; Household, Member, and ownership allocation are not defined
-here.
+An Account belongs to a Household's local ledger. Its ownership association may
+be individual, shared, household-level, or unknown, as described under Household
+and Member below. Ledger inclusion does not establish legal ownership or
+per-Transaction Member attribution; ownership allocation is deferred.
 
 ### Status
 
@@ -354,8 +355,7 @@ limits are separate from the posted balance.
 
 - What internal identifier format and external identifier scoping will be used?
 - How will known balances, their as-of positions, and verification be represented?
-- How will individual/shared ownership be expressed when Household and Member
-  are defined?
+- How will ownership associations and changes over time be represented?
 - How will confirmed closure and late postings be recorded without losing history?
 
 ## Merchant
@@ -684,7 +684,7 @@ duplicate amounts to simulate split classification.
 - Categorization algorithms, reusable rule models, confidence thresholds, or review UI.
 - Split allocations, category hierarchy, or roll-up/reporting calculations.
 - A complete default taxonomy, localized naming policy, or catalog migration scheme.
-- Budget/BudgetCharacter, household ownership, or other related domain models.
+- Budget/BudgetCharacter, Member attribution, or other related domain models.
 - Concrete APIs, persistence schemas, or assignment-history storage formats.
 
 ### Open questions
@@ -695,3 +695,175 @@ duplicate amounts to simulate split classification.
 - What small default set and localized naming conventions should v0.1 provide?
 - How will explicit historical corrections or refunds use archived Categories
   while preserving archive intent and user decisions?
+
+## Household
+
+Household is Ledgerase's local household-finance workspace: the context in which
+Accounts, Transactions, Categories, merchant decisions, and later budgeting
+decisions are managed together. It need not correspond to a legal family or a
+physical household. It does not establish marriage, kinship, residence, tenancy,
+tax status, or ownership rights.
+
+### Identity and user-visible label
+
+Each Household has a stable, unique internal identity and a required, non-empty
+user-visible name or label. Renaming changes presentation, not identity, financial
+history, or existing references. A label is not a legal name or address.
+
+### v0.1 workspace and membership
+
+An initialized v0.1 local data store contains exactly one Household. Its stable
+identity remains meaningful independently of this initial cardinality. Household
+switching and multiple-household participation are deferred.
+
+A Household has zero or more Members; each Member belongs to exactly one
+Household in v0.1. Setup and imports need not wait for named Members. The Household
+remains valid with no Members or no active Members; do not fabricate a person to
+satisfy membership or ownership. Members are added locally, without authentication
+or invitations.
+
+### Financial context and local decisions
+
+Accounts belong to the Household, and their Transactions share that context
+through the Account relationship. Local Category choices, merchant confirmations
+and corrections, ownership choices, and later budgeting decisions are scoped to
+this workspace. Membership does not grant software permissions or make decisions
+global to a person, another household, or a remote merchant catalog.
+
+Household does not impose a currency. Different Accounts retain their existing
+currencies and Money invariants; membership does not convert amounts or permit
+combined totals across currencies. A reporting/default currency is deferred.
+
+### Account inclusion and ownership
+
+Including an Account in the ledger means its finances are tracked in this context.
+It does not prove legal ownership by any or every Member. An individually owned
+account may still be included in the shared household-finance workspace.
+
+Ownership associations record Ledgerase's financial understanding and reporting
+context, rather than independently verified legal title:
+
+| Association | Conceptual meaning |
+| --- | --- |
+| Individual | One explicitly associated Member. |
+| Shared | An explicit set of at least two distinct Members, without assumed equal shares. |
+| Household-level | Explicit treatment at workspace level, without asserting ownership by all Members. |
+| Unknown | No established ownership association; uncertainty remains visible. |
+
+Individual/shared Member references must belong to the Account's Household.
+Household-level treatment is distinct from unknown ownership and does not require
+a Member named "Household." Imported statements must not establish ownership
+certainty without supporting evidence or a deliberate user decision; never assign
+unknown ownership to the first Member by default. Legal ownership verification
+and allocation of ownership shares are outside this definition.
+
+### Invariants
+
+- Stable internal identity and a non-empty user-visible label are required.
+- An initialized v0.1 store has exactly one Household, with zero or more Members.
+- Accounts, local financial decisions, and referenced Members share the same
+  Household context; inclusion and ownership remain distinct.
+- Individual/shared associations identify the stated Members; household-level
+  and unknown associations do not invent Member identities.
+- Rename and membership changes preserve financial history and existing identities.
+- Household scope does not change Account currencies or monetary semantics.
+- Membership establishes participation, not authentication or software permissions.
+
+### Not handled yet
+
+- Multiple-household stores, workspace switching, or cross-household profiles.
+- Authentication, permissions, invitations, synchronization, or remote collaboration.
+- Legal/physical household relationships, legal ownership verification, or ownership shares.
+- Reporting currency, currency conversion, or whole-workspace deletion/archival.
+- Budgets, related domain models, concrete APIs, or persistence schemas.
+
+### Open questions
+
+- What internal identifier format will Household and Member use?
+- How will household scope be represented through direct or existing relationships?
+- How will explicit ownership changes preserve their prior meaning over time?
+
+## Member
+
+Member is a local finance-domain identity for a person participating in a
+Household's finances. It does not represent a login, cloud/device account, legal
+relationship, or permission role. Participation alone implies neither ownership
+of every included Account nor responsibility for every Transaction.
+
+### Identity and display name
+
+Each Member has a stable, unique internal identity, a required Household
+relationship, and a required, non-empty user-visible display name. A familiar
+name or nickname is sufficient; a legal name is not required.
+
+Names need not be unique. Equal display names do not establish the same person.
+Renaming preserves Member identity and all existing associations; it must not
+merge people or reassign financial history.
+
+### Membership lifecycle
+
+Member status is active or archived. Active means available for current
+finance participation and routine ownership choices; it is not an access role.
+Archiving stops routine new selection while keeping the person identifiable in
+existing and historical associations.
+
+Leaving current household finances is represented by archival rather than
+destructive deletion when references exist. Reactivation retains the same
+identity. Archiving the last active Member does not remove the Household or
+assign its Accounts to another person.
+
+### Account ownership and Transaction attribution
+
+A Member may have no Account ownership associations, be individually associated
+with an Account, or participate in an explicitly shared association. Existing
+associations may retain archived Members; archival does not automatically remove
+them or change the Account's ownership meaning.
+
+Account ownership does not establish who made a purchase, who benefited, whose
+spending it should be, or whether it was shared spending. Transaction-to-Member
+attribution is deferred for the initial v0.1 domain model. The later transaction
+ownership feature in PLAN.md can introduce an explicit attribution concept when
+needed; no attribution fields or allocation model are defined here.
+
+### Historical preservation
+
+Rename, departure, archival, and reactivation preserve Member identity and
+historical Account, ownership, and any future Transaction or Budget references.
+They do not erase Transactions or rewrite financial facts or user decisions.
+
+Changing a current ownership association is a separate explicit decision; it
+must not silently reinterpret historical ownership or infer past Transaction
+attribution. How ownership history is represented remains open.
+
+### Privacy and minimal personal data
+
+Display names and local identities are sufficient for the core model. Do not
+require email, username, password, external identity, addresses, birth dates, or
+family relationship details.
+
+Household labels, Member names, participation, and ownership information are
+private financial context. Keep them local; do not assume they are suitable for
+logs, analytics, publication, or external transmission.
+
+### Invariants
+
+- Stable identity, display name, Household relationship, and lifecycle status are required.
+- Each Member belongs to the single local Household in v0.1.
+- Names are presentation, not identity or proof of duplicate membership.
+- Membership and lifecycle status imply neither legal ownership nor access permissions.
+- Archived Members remain valid references in existing and historical associations.
+- Member changes do not erase history, alter Money, or invent Transaction attribution.
+- Unknown or household-level ownership does not require a synthetic Member.
+
+### Not handled yet
+
+- Transaction attribution, benefit/spending allocation, or ownership percentages.
+- Authentication, permission roles, invitations, device identities, or cloud accounts.
+- Family/legal relationships, global person profiles, or remote membership.
+- Synchronization, detailed membership timelines, concrete APIs, or storage schemas.
+
+### Open questions
+
+- How will archival/reactivation and explicit ownership corrections retain history?
+- How should archived Members appear during deliberate historical corrections
+  without returning them to routine current selection?
