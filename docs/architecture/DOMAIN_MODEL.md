@@ -1,7 +1,7 @@
 # Ledgerase Domain Model
 
 This document currently defines Money, Transaction, Account, Merchant, Category,
-Household, Member, and Import.
+Household, Member, Import, Receipt, and ReceiptItem.
 
 ## Money
 
@@ -1055,7 +1055,7 @@ development fixtures are separate from user Import records.
 
 - Importer interfaces, parser classes, bank-specific formats, or matching algorithms.
 - Duplicate detection/reconciliation algorithms or a full SourceObservation model.
-- Receipt/ReceiptItem, OCR, Budget, or other related domain models.
+- Receipt ingestion and OCR, budgeting logic, or other processing pipelines.
 - Multi-account source processing, retry infrastructure, or concrete rollback policy.
 - Database schemas, retention UI, cloud storage, synchronization, or remote processing.
 
@@ -1068,3 +1068,285 @@ development fixtures are separate from user Import records.
 - What explicit review/acceptance policy should apply to partial or unreconciled data?
 - What local raw-source retention default should v0.1 offer, and how will parser
   conflicts and deliberate corrections retain their history?
+
+## Receipt
+
+Receipt is Ledgerase's canonical structured record of one receipt or purchase/refund
+document within a Household. It is evidence describing a commercial event, not an
+Account-affecting Transaction, payment, or global product catalog. A cash receipt,
+a receipt captured before card posting, or an unmatched document remains useful.
+
+### Identity and Household scope
+
+Each Receipt has a stable, unique internal identity and belongs to exactly one
+Household. Identity is independent of source files, extraction attempts, document
+numbers, and Transaction identity. ReceiptItems inherit this context through their
+parent. Merchant and Transaction links must stay within the same Household context.
+
+### Source artifacts, extraction, and provenance
+
+One Receipt may have multiple source artifacts: photos, front/back images, pages,
+or other representations of the same document. Preserve their source order and locators;
+Receipt identity is not one image's identity.
+
+Distinguish source artifacts, OCR/extraction evidence, and interpreted canonical
+fields. OCR text is evidence, not established financial facts. Retain artifact/page/
+position references, original extracted text and values, the OCR/extractor/parser
+identity and version when used, and inferred/reconstructed fields with uncertainty.
+No OCRRun model or concrete processing pipeline is defined here.
+
+Re-running extraction or changing an engine adds traceable evidence; it does not
+automatically create another Receipt or commercial event, recreate established
+items, or overwrite user corrections. Receipt ingestion remains separate from the
+statement Import boundary; no required Import relationship is introduced.
+
+### Merchant evidence and date/time
+
+Raw merchant names, addresses, and descriptor variants remain evidence separate
+from normalized text and canonical Merchant identity. In v0.1, a Receipt has zero
+or one established Merchant relationship. Weak candidates remain unresolved or
+tentative; resolution never replaces raw evidence or inherently assigns Category.
+
+Receipt date/time describes the commercial event shown on the document, not
+capture time, extraction time, or Transaction posting date. Date, time, and timezone
+may be absent or ambiguous; retain the available precision and uncertainty rather
+than inventing midnight, a timezone, or a complete timestamp. Such evidence may
+later support matching or Transaction date evidence, but never silently replaces
+a Transaction's posting date.
+
+### Currency and evidenced monetary fields
+
+v0.1 uses one established currency per Receipt, shared by all accepted Receipt and
+ReceiptItem Money fields. Currency may remain unresolved while source text is
+preserved; "$" does not establish AUD. Accepted monetary fields require explicit
+currency and all Money safe-integer invariants. True multi-currency receipts are
+deferred; conflicting currency evidence requires review, not implicit conversion.
+
+Subtotal, tax, tip, fees, discounts, deposits, rounding/loyalty adjustments, and
+grand total are optional evidenced receipt-level components. Missing is unknown,
+not zero. Preserve their labels, numeric signs, and whether they are additional,
+reducing, or already included in another amount; unresolved roles remain explicit.
+Payment method, card suffix, tender, change, or gift-card payment may be retained
+as matching evidence, without Payment/Tender or ReceiptAdjustment models.
+
+### Monetary signs and document kind
+
+Receipt amounts describe the document's monetary presentation and component
+meaning, not changes to an Account balance. Interpreted Money preserves evidenced
+numeric signs, including explicit negative values and zero. Do not negate or take
+absolute values merely to imitate a linked Transaction or force a total formula.
+
+A purchase total of AUD 42.50 is 4250 minor units even when its linked card
+Transaction is -4250. A refund document may show a positive refund magnitude or
+an explicitly negative credit; preserve that presentation. Purchase, refund/return,
+or unresolved document kind requires separate evidence, not sign alone. A refund
+Receipt is not automatically income or a newly created refund Transaction.
+
+A source-labelled positive discount can reduce the payable total without changing
+its recorded sign. An already signed reduction must not be subtracted twice.
+Component roles and inclusion evidence govern arithmetic interpretation.
+
+### Transaction linking
+
+A Receipt has zero or one established linked Transaction in v0.1. Candidate links
+remain distinguishable from established links and user confirmation. A Receipt
+may remain unmatched without losing its identity or useful evidence; it need not
+supply an Account or create a Transaction to be retained.
+
+A Transaction may have multiple Receipt evidence links. This does not create
+additional financial effects, prove the documents are distinct, or allocate the
+payment among them. Linking multiple Transactions to one Receipt, split tender,
+multiple charges, and partial-refund allocations remain deferred; preserve such
+source evidence and incomplete linkage rather than forcing a complete match.
+
+Merchant, event date/time, total, and payment details may support a link but are
+not proof by themselves. A link preserves both identities and must not change
+Transaction amount, Account, posting date, source provenance, or user-confirmed
+Merchant/Category merely to improve agreement. Conflicting amounts, dates,
+Merchants, or currencies remain explicit for review; do not guess an exchange
+rate or propagate Receipt corrections into Transaction facts or classifications.
+
+### Duplicate artifacts and documents
+
+A fingerprint may help recognize identical artifact bytes but does not define
+Receipt identity. Two photos of the same physical document may have different
+fingerprints; two documents with the same Merchant/date/total may be legitimate.
+
+Confirmed repeated capture of the same document can reuse Receipt identity while
+preserving all relevant extraction provenance. Similar fields establish duplicate
+candidates only. Keep uncertainty visible and avoid silent merging, deletion, or
+creation of another financial effect. No duplicate-matching algorithm is defined.
+
+### Partial interpretation and correction precedence
+
+A Receipt may have zero or more ReceiptItems, with no established Merchant, date,
+currency, total, or Transaction link. Retain useful evidence without manufacturing
+missing fields. A total-only extraction does not imply complete item coverage.
+
+Keep extraction/interpretation progress and coverage, field uncertainty, arithmetic
+validation, Merchant resolution, Transaction linkage, and user review/confirmation
+distinguishable. Completed extraction or one passed check does not mean the entire
+Receipt is verified. Failed or partial extraction preserves usable evidence.
+
+Users may deliberately correct Merchant, date/time, total, and item fields.
+Preserve original source/OCR values separately from interpreted and corrected
+values, with their origin and confirmation. Confidence applies to the field or
+association, not blanket certainty about the document. Later automatic extraction
+must not silently override user corrections; conflicts require review. Corrections
+apply within their explicit scope and do not create universal merchant/category
+rules or automatically change linked Transaction decisions.
+
+### Arithmetic validation
+
+Validate only relationships supported by available evidence: item line amounts,
+subtotal, explicit discounts/adjustments, taxes, tips/fees, and grand total.
+Do not assume item sums equal the total. Included tax must not be added again,
+nor embedded discounts applied twice. Tender/change and payment lines, subtotal
+lines, and tax summaries must not automatically become merchandise ReceiptItems.
+
+Missing components or unknown roles make a full check unavailable or partial;
+an independently supported subtotal check may still agree. Record checked scope,
+coverage, agreement/mismatch, and limitations separately. Where source rounding
+is evidenced, preserve it; do not invent adjustments or tolerances to force a pass.
+All monetary arithmetic must preserve Money's exactness and overflow rules.
+
+A mismatch may reflect OCR errors, missed lines, unsupported layouts, adjustments,
+or unusual source formatting. Preserve evidence and review reasons; never alter
+extracted monetary values merely to reconcile. Agreement establishes only that
+check's arithmetic, not Merchant identity, OCR accuracy, date, Transaction linkage,
+or completion of user review.
+
+### Retention and privacy
+
+Original images/files remain local by default; retention or disposal follows a
+local user choice. Preserve artifact metadata/fingerprints when available, source
+locators, extractor provenance, original extracted text/values, reconstructed
+fields, uncertainty, and corrections even when artifacts are discarded. Structured
+Receipt data must not depend on permanent raw-file retention; a hash alone is not
+explanatory provenance. Re-extraction requires access to the source again.
+
+Receipt/OCR evidence may reveal card fragments, loyalty/member or order IDs,
+names, addresses, phone/tax identifiers, location, and health-related purchases.
+Treat all such content as sensitive local financial data. Keep it out of ordinary
+logs, analytics, public fixtures, and external services. Development fixtures are
+synthetic or fully anonymized; real household images/OCR are not repository data.
+
+### Invariants
+
+- Stable identity and exactly one Household are required; missing interpreted
+  fields or items do not invalidate useful evidence.
+- Receipt, artifacts/extraction, and linked Transactions have independent identities.
+- Established monetary fields obey Money and share the one Receipt currency in v0.1.
+- Receipt signs and document kind remain independent of Account balance-change signs.
+- v0.1 Merchant and Transaction relationships are each optional and at most one;
+  links preserve Household scope and Transaction facts and confirmed decisions.
+- Original evidence, uncertainty, and deliberate corrections survive re-extraction
+  and optional artifact disposal; unknown values are never fabricated.
+- Extraction, validation, resolution, linkage, and user confirmation remain distinct.
+
+### Not handled yet
+
+- OCR APIs/runs, image processing, receipt parsing, duplicate or matching algorithms.
+- ReceiptAdjustment, Payment/Tender, Product/catalog, or Budget models.
+- Multi-currency documents, split tender, payment allocation, or refund matching.
+- Categorization, transaction splits, tax accounting, or inventory management.
+- Correction-history schemas, database schemas, retention UI, or remote processing.
+
+### Open questions
+
+- What identifier, artifact fingerprint, and extraction-history representations
+  will preserve document identity across repeat captures and reprocessing?
+- How will component roles, field evidence, check scopes, confirmation, and conflicts
+  be represented without an overloaded status?
+- What local retention defaults and review policy should apply to partial or
+  arithmetically inconsistent documents and proposed Transaction links?
+
+## ReceiptItem
+
+ReceiptItem is one structured purchased/returned line item within a Receipt.
+It records what that document says, not a canonical Product or financial movement.
+Its meaning and Household context depend on its parent Receipt.
+
+### Identity, parent, and ordering
+
+Each ReceiptItem has a stable identity unique within exactly one parent Receipt,
+sufficient for corrections and future references. Source line number, description,
+SKU, and amount are not identity keys. Reordering display or re-running extraction
+must not silently merge, recreate, or reidentify established items.
+
+Preserve source sequence and artifact/page/line/region positions where available,
+separately from display order. Missing or ambiguous positions remain explicit;
+do not invent precise geometry or silently discard unreadable lines.
+
+### Raw evidence and description
+
+Retain raw source/OCR text, values, locators, extractor provenance, and reconstruction
+or uncertainty evidence. A user-visible, normalized, or corrected description is
+separate from the original. Descriptions may be absent or unreadable; equal text
+does not establish the same item, product, or identity.
+
+Useful partial lines such as "BANANAS" or "BANANAS 1.240kg" may be retained without
+a price. Do not invent missing fields to make an item look complete.
+
+### Optional quantity, prices, and source identifiers
+
+Quantity is an optional exact count or measure with its evidenced unit/pricing
+basis, such as count or kilograms. It is not Money. Preserve decimal quantity text,
+units, and ambiguity; do not casually assume binary floating-point accuracy.
+Its concrete numeric representation remains open.
+
+Unit price and line amount/total are independently optional Money fields when
+established, using the Receipt currency and all Money invariants. Missing amounts
+are unknown, not zero; missing quantity is not one. A source unit price finer than
+currency minor units stays in provenance rather than being silently rounded into
+Money. Preserve directly evidenced line totals, including negative return lines,
+rather than replacing them with quantity multiplied by price.
+
+Quantity/price checks require established units, pricing basis, adjustments, and
+any evidenced rounding. An unavailable check does not invalidate a directly
+evidenced line amount. No quantity arithmetic or rounding policy is defined here.
+
+An optional SKU/product code or source item identifier is contextual source
+metadata, not a global product identity or the ReceiptItem's internal identity.
+No Product, Inventory, or catalog relationship is introduced.
+
+### Uncertainty, corrections, and other relationships
+
+Description, quantity, unit price, and line amount may each remain unresolved or
+have different confidence/confirmation. User corrections preserve original evidence
+and item identity; later automatic interpretation must not silently replace them.
+Receipt validation does not confirm every item field. Correcting or removing a
+spurious interpreted line must preserve its evidence and correction traceability,
+not silently destroy source history.
+
+The parent Receipt supplies optional Merchant context; v0.1 introduces no separate
+ReceiptItem Merchant or Category assignment. Items may later provide evidence for
+category suggestions or splits, but do not inherently classify a Transaction,
+override confirmed Merchant/Category decisions, or bypass v0.1's single Category
+and deferred split boundaries. Item provenance shares the Receipt's privacy rules.
+
+### Invariants
+
+- Stable identity within one parent Receipt is required; Household context is inherited.
+- Source ordering/positions and raw evidence remain distinct from identity and display.
+- Descriptions, quantities, prices, line amounts, and source codes may be unresolved.
+- Accepted monetary fields match Receipt currency and obey Money; quantities remain
+  separate exact count/measure evidence.
+- Reordering, re-extraction, and correction preserve identity, source evidence,
+  and deliberate user decisions.
+- Item text or codes establish neither global Product identity nor Category.
+- ReceiptItem creation or correction does not itself create a financial movement.
+
+### Not handled yet
+
+- Product/catalog identities, inventory, or item-level Merchant/Category assignment.
+- Categorization, transaction splits, quantity arithmetic, or rounding policies.
+- Extraction algorithms, concrete numeric types, APIs, or persistence schemas.
+
+### Open questions
+
+- What item identifier and correspondence evidence will preserve identity across
+  re-extraction, reordered lines, and corrections to spurious or missing items?
+- What exact quantity/unit representation and future sub-minor-unit price support
+  are needed, without changing current Money semantics?
+- How will item corrections and removal from the interpreted result preserve history?

@@ -24,7 +24,7 @@ Do not start later phases early.
 - [X] Define Category
 - [X] Define Household and Member
 - [X] Define Import
-- [ ] Define Receipt and ReceiptItem
+- [X] Define Receipt and ReceiptItem
 - [ ] Define Budget
 
 Milestone:
