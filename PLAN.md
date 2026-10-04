@@ -34,8 +34,8 @@ We understand the core objects before implementing storage or UI.
 
 ## 1. Repository bootstrap
 
-- [ ] Initialize Git repository
-- [ ] Initialize pnpm workspace
+- [X] Initialize Git repository
+- [X] Initialize pnpm workspace
 - [ ] Create apps/mobile
 - [ ] Create packages/domain
 - [ ] Create packages/database
