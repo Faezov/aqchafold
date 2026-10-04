@@ -25,7 +25,7 @@ Do not start later phases early.
 - [X] Define Household and Member
 - [X] Define Import
 - [X] Define Receipt and ReceiptItem
-- [ ] Define Budget
+- [X] Define Budget
 
 Milestone:
 We understand the core objects before implementing storage or UI.

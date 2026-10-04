@@ -1,7 +1,7 @@
 # Ledgerase Domain Model
 
 This document currently defines Money, Transaction, Account, Merchant, Category,
-Household, Member, Import, Receipt, and ReceiptItem.
+Household, Member, Import, Receipt, ReceiptItem, and Budget.
 
 ## Money
 
@@ -591,7 +591,8 @@ Dining might receive discretionary treatment; Medical might be essential or
 irregular; Transport may receive different treatment depending on context.
 
 Such treatment can vary without changing Category identity or the Transaction's
-category assignment. Budget and BudgetCharacter are not defined here.
+category assignment. Budget is defined below; concrete budget-character
+representation remains deferred.
 
 ### System-provided and user-created Categories
 
@@ -683,7 +684,7 @@ duplicate amounts to simulate split classification.
 - Categorization algorithms, reusable rule models, confidence thresholds, or review UI.
 - Split allocations, category hierarchy, or roll-up/reporting calculations.
 - A complete default taxonomy, localized naming policy, or catalog migration scheme.
-- Budget/BudgetCharacter, Member attribution, or other related domain models.
+- Budget-character representation, Member attribution, or other related domain models.
 - Concrete APIs, persistence schemas, or assignment-history storage formats.
 
 ### Open questions
@@ -698,7 +699,7 @@ duplicate amounts to simulate split classification.
 ## Household
 
 Household is Ledgerase's local household-finance workspace: the context in which
-Accounts, Transactions, Categories, merchant decisions, and later budgeting
+Accounts, Transactions, Categories, merchant decisions, and budgeting
 decisions are managed together. It need not correspond to a legal family or a
 physical household. It does not establish marriage, kinship, residence, tenancy,
 tax status, or ownership rights.
@@ -725,7 +726,7 @@ or invitations.
 
 Accounts belong to the Household, and their Transactions share that context
 through the Account relationship. Local Category choices, merchant confirmations
-and corrections, ownership choices, and later budgeting decisions are scoped to
+and corrections, ownership choices, and budgeting decisions are scoped to
 this workspace. Membership does not grant software permissions or make decisions
 global to a person, another household, or a remote merchant catalog.
 
@@ -774,7 +775,7 @@ and allocation of ownership shares are outside this definition.
 - Authentication, permissions, invitations, synchronization, or remote collaboration.
 - Legal/physical household relationships, legal ownership verification, or ownership shares.
 - Reporting currency, currency conversion, or whole-workspace deletion/archival.
-- Budgets, related domain models, concrete APIs, or persistence schemas.
+- Related domain models, concrete APIs, or persistence schemas.
 
 ### Open questions
 
@@ -1247,7 +1248,7 @@ synthetic or fully anonymized; real household images/OCR are not repository data
 ### Not handled yet
 
 - OCR APIs/runs, image processing, receipt parsing, duplicate or matching algorithms.
-- ReceiptAdjustment, Payment/Tender, Product/catalog, or Budget models.
+- ReceiptAdjustment, Payment/Tender, or Product/catalog models.
 - Multi-currency documents, split tender, payment allocation, or refund matching.
 - Categorization, transaction splits, tax accounting, or inventory management.
 - Correction-history schemas, database schemas, retention UI, or remote processing.
@@ -1350,3 +1351,211 @@ and deferred split boundaries. Item provenance shares the Receipt's privacy rule
 - What exact quantity/unit representation and future sub-minor-unit price support
   are needed, without changing current Money semantics?
 - How will item corrections and removal from the interpreted result preserve history?
+
+## Budget
+
+Budget is Ledgerase's household financial plan for a defined calendar period.
+It describes intended spending and/or income, not a financial fact, Transaction,
+Account balance, Category, or envelope of real money. Targets do not reserve bank
+funds, prove income, prevent spending, change balances, or create financial movements.
+For example, a Groceries target of AUD 800 is an intention, not an AUD 800
+Transaction or evidence that an Account holds that amount.
+
+### Identity, label, and Household scope
+
+Each Budget has a stable, unique internal identity, exactly one Household, and a
+required, non-empty user-visible name or label. Labels need not be unique;
+renaming changes presentation, not identity or existing relationships.
+
+Referenced Categories, Transactions used for actuals, and local decisions must
+share the Budget's Household context. v0.1 plans cover the household's economic
+activity across its included Accounts, rather than belonging to one Account or
+Member. Account ownership does not determine who spent money or imply a personal
+budget. Closed Accounts' Transactions remain historical actuals when otherwise
+eligible; current Account status must not erase them. Per-Member attribution,
+allowances, and personal budgets are deferred.
+
+### Calendar period and overlapping plans
+
+v0.1 uses a required start date and end date, both valid date-only calendar values
+with inclusive boundaries and start date no later than end date. A period such as
+2026-10-01 through 2026-10-31 includes both dates. No time of day, timestamp, or
+timezone conversion is implied. Monthly periods are useful but not mandatory;
+recurring templates are deferred.
+
+Period membership uses each canonical Transaction's required posting date only.
+The optional transaction date, Receipt event date, and Import timing do not
+replace it, and there is no silent fallback between date fields.
+
+Overlapping periods are permitted in v0.1 as independent planning/comparison
+views. This supports different planning ranges without a uniqueness restriction.
+They reference the same canonical Transactions without copying them or creating
+another financial effect. Each movement counts once within each comparison;
+overlapping Budget totals must not be added as though their activity were disjoint.
+
+### Currency boundary
+
+Each Budget has one explicit currency in v0.1. Every planned Money amount uses
+that currency and all Money safe-integer, validation, and exact-arithmetic rules.
+The Household does not impose this currency on its Accounts or other Budgets.
+
+Actuals can be aggregated directly only from canonical Transaction amounts in
+the Budget currency. Transactions in other currencies remain valid and visible
+as activity outside these monetary totals; their exclusion and resulting coverage
+limitations must be explicit. Do not combine currencies or use implicit FX.
+A foreign-purchase amount in provenance does not replace the canonical posted
+amount in Account currency. Multi-currency budgeting and conversion are deferred.
+
+### Planned spending, income, and Category targets
+
+Planned targets use non-negative Money magnitudes with an explicit spending or
+income role. Planned spending of AUD 500 uses `amountMinor = 50000`, not -50000;
+planned income of AUD 500 uses the same magnitude with a different role. Budget
+adds this invariant without changing signed Money or Transaction balance semantics.
+Negative targets are invalid; refunds, credits, and reversals belong to actual
+economic activity. An explicit zero target is meaningful and distinct from no target.
+
+A Budget may have an overall spending target, an overall income target, and zero
+or more category-specific targets internal to the plan. Each category target
+references a stable Category identity and states its spending/income role. Neither
+Category name nor Money sign chooses the role. No separate BudgetLine model is
+required here. For example, an October AUD plan may target Groceries spending of
+800, Dining of 250, Transport of 300, and Salary income of 7000.
+
+Overall and category targets are separate comparison scopes, not additive amounts
+of planned spending or income. Category targets need not sum to an overall target:
+unallocated buffer and partial planning are valid. Show incomplete allocation
+explicitly rather than inventing an "Other" Category or forcing equality.
+
+Category describes economic purpose; Budget describes household intention for
+the period. A Category can exist without a target. Budget does not categorize
+Transactions, make Merchant imply Category, or override confirmed assignments.
+Category renames and archival preserve target references and historical meaning;
+never silently migrate an old target to a different Category.
+
+### Canonical Transactions and derived actuals
+
+Plans stay separate from financial movements:
+
+```text
+Budget plan -> compared with canonical Transactions -> derived actuals
+```
+
+Budget does not own or copy Transactions. Spending and income actuals derive
+from canonical Transactions and established economic meanings or explicit local
+decisions. Transaction signs continue to describe Account balance changes;
+negative does not inherently mean spending, nor positive income. Unresolved
+economic meaning remains visible for review rather than being guessed from sign.
+
+For eligible activity, distinguish Category actuals with an explicit target,
+Category actuals without a target, and uncategorized actuals with no established
+Category. Missing targets do not mean zero spending is allowed. Unbudgeted and
+uncategorized spending/income remain in relevant household actuals even without
+a category target. A derived "Uncategorized" view needs no canonical Category.
+Unresolved economic treatment must remain visible without being forced into totals.
+
+Import observations, raw bank rows, Receipt totals, ReceiptItems, and OCR are
+evidence, never additional actuals. An unmatched cash Receipt needs a canonical
+manual cash Transaction to represent spending. Additional evidence links to a
+Transaction do not count it again. Actuals reflect available canonical records;
+incomplete history, reconciliation limitations, and outstanding review remain
+explicit rather than making a comparison appear fully verified.
+
+### Transfers, refunds, and reimbursements
+
+Confirmed internal transfers are neither household spending nor income, regardless
+of sign or Category. Moving money from checking to savings or paying a household
+credit card from a household bank Account must not count the sending side as
+spending and the receiving side as income. Separate transfer fees may count as
+expenses when their meaning is established and may have their own Category.
+
+An established purchase refund may reduce spending in its established Category;
+it is not automatically income because its amount is positive. A reimbursement
+may economically offset spending when its meaning is established by evidence or
+an explicit decision, and remains distinct from ordinary income. Neither requires
+automatic matching to an original purchase here. Posting-date period membership
+still applies; do not move a later refund into an earlier period merely to align
+it with a purchase. Detailed matching and netting/reporting policies are deferred.
+
+### Independence from budget character and Merchant
+
+Essential, discretionary, irregular, and work/admin treatment remains separate
+from Category identity and Merchant identity/type. Dining may receive discretionary
+treatment; Medical may be essential or irregular depending on household intent.
+Changing treatment need not change Category identity or Transaction assignment.
+Merchant evidence may later inform a suggestion but must not decide treatment.
+Concrete budget-character representation is deferred; no BudgetCharacter model
+or intrinsic Category/Merchant property is introduced.
+
+### Variance, edits, and rollover
+
+Planned totals express intention; actual totals express derived economic activity.
+Their difference is a variance, not money held in an Account. A budget remainder
+is not an Account balance. Overspending means actual spending exceeds a target;
+it is valid activity, not grounds to reject or alter a Transaction, automatically
+increase a target, or fail reconciliation. Underspending neither changes Accounts
+nor automatically creates savings.
+
+Users may deliberately edit current or historical targets and period dates while
+preserving Budget identity. Amount edits change the plan; date edits change its
+comparison scope. Neither rewrites actual Transactions. Budget comparisons must
+never repair amounts, signs, dates, Categories, Merchants, transfer/refund meaning,
+or Account balances to fit a plan. Deliberate corrections to canonical facts or
+classifications can legitimately change derived actuals without changing targets;
+do not freeze or duplicate Transactions to retain an outdated comparison.
+
+Future/current/past describes the calendar relationship derived from dates, not
+a stored lifecycle or verification status. Past plans are not inherently immutable,
+closed, or financially reconciled. Plan version/audit tracking remains open.
+
+v0.1 has no automatic rollover. Unused or overspent amounts never silently change
+the next Budget. Envelope carry-forward, sinking funds, and deficit carry-forward
+need explicit later policy; no virtual balances or reserved cash are introduced.
+
+### Privacy
+
+Budget names, income targets, limits, and household priorities are sensitive local
+financial information. Keep them local; they must not be assumed suitable for
+ordinary logs, analytics, publication, remote processing, or cloud synchronization.
+Budgets require no account registration, backend, or cross-household sharing.
+
+### Invariants
+
+- Stable identity, non-empty label, one Household, valid inclusive date range,
+  and one explicit currency are required.
+- Targets have explicit spending/income roles, non-negative Money magnitudes,
+  and the Budget currency; missing targets and explicit zero remain distinct.
+- Overall targets do not require exhaustive category allocation or double-count
+  category targets. Referenced Categories and actuals stay in the same Household.
+- Posting date alone determines period membership; directly aggregated actuals
+  use the Budget currency and established economic meaning, never sign alone.
+- Unbudgeted, uncategorized, foreign-currency, and uncertain activity remain visible
+  with relevant limitations; confirmed internal transfers are not spending/income.
+- Plans, comparisons, overlap, edits, and variance never create financial movements
+  or repair canonical facts, classifications, provenance, or reconciliation.
+- Renames and Account closure/Category archival preserve historical relationships;
+  budget character stays independent of Category and Merchant.
+- No automatic rollover changes another Budget or creates reserved Account funds.
+
+### Not handled yet
+
+- BudgetLine, BudgetPeriod, or BudgetCharacter models, concrete APIs, or schemas.
+- Reporting/variance algorithms, categorization rules, transaction matching,
+  refund/reimbursement netting, or historical reporting snapshots.
+- Rollover, envelopes, carry-forward, recurring templates, or per-Member budgets.
+- Forecasting, actual-to-date views, projections, or recurring-bill prediction.
+- Savings goals, emergency funds, debt payoff, sinking funds, net-worth or investment targets.
+- Multi-currency conversion, cloud synchronization, or shared cloud budgets.
+
+### Open questions
+
+- What identifier and internal target representations will preserve identity,
+  explicit economic roles, missing values, and partial planning?
+- How should v0.1 present incomplete target allocation, classification uncertainty,
+  incomplete financial coverage, and activity outside the Budget currency?
+- How should later comparisons present refunds/reimbursements, including offsets
+  greater than period spending, without changing posting dates or treating them as income?
+- What historical plan/version tracking or explicit snapshots, if any, will be
+  needed after deliberate edits and financial classification corrections?
+- When budget character is needed, what representation will preserve its independent
+  household meaning without making it intrinsic to Category or Merchant?
