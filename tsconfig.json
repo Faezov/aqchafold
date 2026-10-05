@@ -10,8 +10,5 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": [
-    "packages/*/src/**/*.ts",
-    "packages/importers/*/src/**/*.ts"
-  ]
+  "include": ["packages/*/src/**/*.ts", "packages/importers/*/src/**/*.ts"]
 }

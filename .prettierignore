@@ -1,0 +1,10 @@
+# Formatting covers source/config files; Markdown and archives are out of scope.
+**/*.md
+archive/
+
+# Generated dependencies and build output.
+**/node_modules/
+**/.expo/
+**/dist/
+**/coverage/
+pnpm-lock.yaml

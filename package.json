@@ -4,9 +4,18 @@
   "private": true,
   "packageManager": "pnpm@12.9.1",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json && pnpm --filter @aqchafold/mobile exec tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json && pnpm --filter @aqchafold/mobile exec tsc --noEmit -p tsconfig.json",
+    "lint": "eslint packages apps/mobile",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,cjs,mjs,json,yaml,yml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,cjs,mjs,json,yaml,yml}\""
   },
   "devDependencies": {
-    "typescript": "6.0.3"
+    "@eslint/js": "9.39.5",
+    "eslint": "9.39.5",
+    "eslint-config-expo": "57.0.2",
+    "eslint-config-prettier": "10.1.8",
+    "prettier": "3.9.9",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.0"
   }
 }
