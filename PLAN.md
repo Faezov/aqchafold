@@ -39,7 +39,7 @@ We understand the core objects before implementing storage or UI.
 - [X] Create apps/mobile
 - [X] Create packages/domain
 - [X] Create packages/database
-- [ ] Create packages/importers
+- [X] Create packages/importers
 - [ ] Create packages/merchants
 - [ ] Create packages/receipts
 - [ ] Create packages/budgeting
