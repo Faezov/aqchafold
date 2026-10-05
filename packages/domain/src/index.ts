@@ -13,3 +13,5 @@ export {
   type CategoryOptions,
   type CategoryStatus,
 } from "./category";
+export { Household, type HouseholdOptions } from "./household";
+export { Member, type MemberOptions, type MemberStatus } from "./member";

@@ -63,7 +63,7 @@ The repository builds and tests, but contains almost no product logic.
 - [X] Implement Account
 - [X] Implement Merchant
 - [X] Implement Category
-- [ ] Implement Household / Member
+- [X] Implement Household / Member
 - [ ] Implement Import model
 
 Milestone:
