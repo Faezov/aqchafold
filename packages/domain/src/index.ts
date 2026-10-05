@@ -7,3 +7,4 @@ export {
   type AccountStatus,
   type AccountOwnership,
 } from "./account";
+export { Merchant, type MerchantOptions } from "./merchant";
