@@ -40,9 +40,9 @@ We understand the core objects before implementing storage or UI.
 - [X] Create packages/domain
 - [X] Create packages/database
 - [X] Create packages/importers
-- [ ] Create packages/merchants
-- [ ] Create packages/receipts
-- [ ] Create packages/budgeting
+- [X] Create packages/merchants
+- [X] Create packages/receipts
+- [X] Create packages/budgeting
 - [ ] Configure TypeScript
 - [ ] Configure linting / formatting
 - [ ] Configure Vitest
