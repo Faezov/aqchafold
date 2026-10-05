@@ -101,8 +101,8 @@ CommBank PDF
 → canonical transactions
 → SQLite
 
-- [ ] Define StatementImporter contract
-- [ ] Define ParsedStatement result
+- [X] Define StatementImporter contract
+- [X] Define ParsedStatement result
 - [ ] Add anonymized CommBank fixture
 - [ ] Detect CommBank browser Transaction Summary
 - [ ] Parse transaction dates

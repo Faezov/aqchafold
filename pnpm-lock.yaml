@@ -241,7 +241,11 @@ importers:
 
   packages/importers/commbank: {}
 
-  packages/importers/core: {}
+  packages/importers/core:
+    dependencies:
+      '@aqchafold/domain':
+        specifier: workspace:*
+        version: link:../../domain
 
   packages/merchants: {}
 
