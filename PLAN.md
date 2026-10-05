@@ -43,7 +43,7 @@ We understand the core objects before implementing storage or UI.
 - [X] Create packages/merchants
 - [X] Create packages/receipts
 - [X] Create packages/budgeting
-- [ ] Configure TypeScript
+- [X] Configure TypeScript
 - [ ] Configure linting / formatting
 - [ ] Configure Vitest
 - [ ] Add private fixture paths to .gitignore
