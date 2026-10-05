@@ -46,8 +46,8 @@ We understand the core objects before implementing storage or UI.
 - [X] Configure TypeScript
 - [X] Configure linting / formatting
 - [X] Configure Vitest
-- [ ] Add private fixture paths to .gitignore
-- [ ] Verify one test runs successfully
+- [X] Add private fixture paths to .gitignore
+- [X] Verify one test runs successfully
 
 Milestone:
 The repository builds and tests, but contains almost no product logic.
