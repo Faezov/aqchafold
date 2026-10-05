@@ -1,1 +1,1 @@
-export {};
+export { commbankBrowserSummaryImporter } from "./browser-summary";

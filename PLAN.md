@@ -104,7 +104,7 @@ CommBank PDF
 - [X] Define StatementImporter contract
 - [X] Define ParsedStatement result
 - [X] Add anonymized CommBank fixture
-- [ ] Detect CommBank browser Transaction Summary
+- [X] Detect CommBank browser Transaction Summary
 - [ ] Parse transaction dates
 - [ ] Parse descriptions
 - [ ] Parse amounts

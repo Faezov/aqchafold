@@ -1,0 +1,5 @@
+diff --git a/dist/index.mjs b/dist/index.mjs
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -0,0 +1 @@
++const structuredClone = (value, options) => globalThis.structuredClone(value, options ?? undefined);
