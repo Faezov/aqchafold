@@ -56,8 +56,8 @@ The repository builds and tests, but contains almost no product logic.
 
 ## 2. Domain foundation
 
-- [ ] Implement Money
-- [ ] Test Money arithmetic and currency invariants
+- [X] Implement Money
+- [X] Test Money arithmetic and currency invariants
 - [ ] Implement Transaction
 - [ ] Test transaction sign convention
 - [ ] Implement Account

@@ -1,1 +1,1 @@
-export {};
+export { Money } from "./money";
