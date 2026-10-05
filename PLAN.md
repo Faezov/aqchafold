@@ -60,7 +60,7 @@ The repository builds and tests, but contains almost no product logic.
 - [X] Test Money arithmetic and currency invariants
 - [X] Implement Transaction
 - [X] Test transaction sign convention
-- [ ] Implement Account
+- [X] Implement Account
 - [ ] Implement Merchant
 - [ ] Implement Category
 - [ ] Implement Household / Member
