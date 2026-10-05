@@ -49,20 +49,61 @@ Account, Transaction's Account and optional Merchant/Category, and ownership
 Member rows. No cascading deletes erase history. Merchant and Category currently
 have no Household field in the implemented domain; none is invented here.
 
-### Later repository invariants
+## Repositories
 
-- An initialized v0.1 store contains exactly one Household.
-- Individual ownership has one Member row; shared ownership has at least two;
-  household-level and unknown ownership have none. Ordinals are contiguous from
-  zero, with individual ownership at zero.
-- Ownership Members and an Import's confirmed Account share its Household.
+`HouseholdRepository`, `MemberRepository`, and `AccountRepository` take an
+already-open Drizzle handle.
+They do not open connections or apply migrations; tables must exist before use.
+Their synchronous APIs are:
+
+```ts
+new HouseholdRepository(database).create(household); // void
+new HouseholdRepository(database).get(); // Household | undefined
+new MemberRepository(database).create(member); // void
+new MemberRepository(database).getById(id); // Member | undefined
+new AccountRepository(database).create(account); // void
+new AccountRepository(database).getById(id); // Account | undefined
+```
+
+Creates validate through domain constructors; reads reconstruct canonical domain
+objects. `undefined` distinguishes an empty store or absent Member/Account from a
+record.
+Create operations insert new records; they do not update or silently reuse them.
+
+Household creation checks and inserts in an immediate transaction, enforcing at
+most one Household even across concurrent repository writers. Any existing
+Household causes creation to fail, including the same ID. Household reads reject
+a store containing multiple Households. Direct database writes can bypass this
+repository-level invariant.
+
+Member creation validates the referenced Household and inserts in an immediate
+transaction. Member reads reconstruct through `Member` and validate the Household
+in one transaction. Display names and `active`/`archived` status are preserved
+exactly; archived Members remain readable and valid Account ownership references.
+
+Account creation checks references and inserts the Account plus `account_members`
+in one immediate transaction. Individual ownership has exactly one Member row;
+shared ownership has at least two distinct Members; household-level and unknown
+ownership have none. Contiguous zero-based ordinals preserve the supplied shared
+Member order without sorting by ID. The Household and every ownership Member must
+exist, and Members must belong to that Household. Archived Members remain valid.
+
+Account reads use a transaction for a coherent snapshot, validate all ownership
+rows and references, and reconstruct through `Account`. Invalid cardinality,
+ordinals, duplicate references, missing references, or foreign-Household Members
+fail explicitly; no rows are dropped or ownership meanings repaired. Pure mapping
+tests cover these checks without exercising SQLite persistence.
+
+### Remaining repository invariants
+
+- An Import's confirmed Account shares its Household.
 - Transaction currency matches its Account's primary currency.
-- Writes and reads preserve domain nonblank-string and Gregorian date validation,
-  mapping SQL NULL to absent optional fields without changing raw evidence.
-- Ownership updates are atomic; archival/closure preserves references and history.
+- Other entity writes and reads preserve domain validation, mapping SQL NULL to
+  absent optional fields without changing raw evidence.
+- Future ownership updates are atomic; archival/closure preserves history.
 
 Simple foreign keys and row checks cannot enforce these cross-row/domain rules.
-They require later repositories and domain construction; no triggers are added.
+They require repositories and domain construction; no triggers are added.
 
 ## Migration generation
 
@@ -80,7 +121,7 @@ files together; do not maintain an independent SQL schema or edit historical
 migrations. A second generation with an unchanged schema should create nothing.
 
 The opener does not create tables, apply migrations, or seed application data.
-Runtime migration execution, repositories, persistence tests, and Android/iOS
+Runtime migration execution, other repositories, persistence tests, and Android/iOS
 runtime verification remain deferred. Receipt/Budget, observations, reconciliation,
 balances, duplicate matching, and Transaction-to-Import linkage are not implemented
 domain structures and have no tables or invented fields here.

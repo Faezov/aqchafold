@@ -9,6 +9,7 @@
     "db:check": "drizzle-kit check"
   },
   "dependencies": {
+    "@aqchafold/domain": "workspace:*",
     "drizzle-orm": "0.45.2",
     "expo-sqlite": "57.0.3"
   },

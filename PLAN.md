@@ -77,8 +77,9 @@ Core finance concepts exist independently of CommBank, SQLite, and React.
 - [X] Add Drizzle
 - [X] Define initial schema
 - [X] Add first migration
-- [ ] Create household repository
-- [ ] Create account repository
+- [X] Create household repository
+- [X] Create member repository
+- [X] Create account repository
 - [ ] Create transaction repository
 - [ ] Create merchant repository
 - [ ] Test basic persistence
