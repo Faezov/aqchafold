@@ -1,0 +1,141 @@
+{
+  "fixture": "browser-summary-01.pdf",
+  "purpose": "Hand-authored synthetic source evidence, not parser output or canonical Transactions.",
+  "layoutReference": {
+    "url": "https://www.logan.qld.gov.au/files/assets/public/v/1/residents/documents/an_example_of_a_bank_statement.pdf",
+    "authority": "Logan City Council government-hosted public example",
+    "format": "CommBank Transaction Summary",
+    "notes": [
+      "The source has obscured variable values and noisy overlapping text layers.",
+      "Only demonstrated layout and fixed bank/format labels are retained; all variable values are invented."
+    ]
+  },
+  "page": {
+    "count": 1,
+    "sizePoints": [595.92, 843.12],
+    "columns": ["Date", "Transaction", "Debit", "Credit", "Balance"],
+    "tableRowNumbering": "One-based visual table entries, including the opening-balance entry.",
+    "continuationBehavior": "Continuation text stays in the Transaction column; monetary cells align with the last description line."
+  },
+  "headerEvidence": {
+    "rawBankName": "Commonwealth Bank of Australia",
+    "rawTitle": "Transaction Summary",
+    "rawPageCounter": "(Page 1 of 1)",
+    "rawCustomerLines": [
+      "SYNTHETIC CUSTOMER",
+      "1 Example Road",
+      "Exampleville ZZ 0000"
+    ],
+    "rawAccountIdentifier": "000 000 00000000",
+    "rawStatementLabel": "Statement",
+    "rawPeriod": "01 Feb - 28 Feb 2036",
+    "rawClosingBalance": "$8,145.22"
+  },
+  "openingBalanceEvidence": {
+    "page": 1,
+    "tableRow": 1,
+    "rawDate": "01 Feb",
+    "rawDescription": "2036 OPENING BALANCE",
+    "rawDebit": "",
+    "rawCredit": "",
+    "rawBalance": "$6,407.35"
+  },
+  "sourceRows": [
+    {
+      "tableRow": 2,
+      "rawDate": "02 Feb",
+      "rawDescription": "FIXTURE MARKET EXAMPLEVILLE",
+      "rawDebit": "38.47",
+      "rawCredit": "",
+      "rawBalance": "$6,368.88"
+    },
+    {
+      "tableRow": 3,
+      "rawDate": "02 Feb",
+      "rawDescription": "SYNTHETIC HOME SUPPLIES",
+      "rawDebit": "112.83",
+      "rawCredit": "",
+      "rawBalance": "$6,256.05"
+    },
+    {
+      "tableRow": 4,
+      "rawDate": "03 Feb",
+      "rawDescription": "Credit SYNTHETIC EMPLOYER",
+      "rawDebit": "",
+      "rawCredit": "1,283.76",
+      "rawBalance": "$7,539.81"
+    },
+    {
+      "tableRow": 5,
+      "rawDate": "03 Feb",
+      "rawDescription": "Direct Debit SYNTHETIC UTILITIES\n91007382",
+      "rawDebit": "24.19",
+      "rawCredit": "",
+      "rawBalance": "$7,515.62"
+    },
+    {
+      "tableRow": 6,
+      "rawDate": "04 Feb",
+      "rawDescription": "FIXTURE REPAIR WORKSHOP",
+      "rawDebit": "145.62",
+      "rawCredit": "",
+      "rawBalance": "$7,370.00"
+    },
+    {
+      "tableRow": 7,
+      "rawDate": "05 Feb",
+      "rawDescription": "Refund SYNTHETIC HOME SUPPLIES",
+      "rawDebit": "",
+      "rawCredit": "94.57",
+      "rawBalance": "$7,464.57"
+    },
+    {
+      "tableRow": 8,
+      "rawDate": "05 Feb",
+      "rawDescription": "FIXTURE COFFEE STAND",
+      "rawDebit": "7.53",
+      "rawCredit": "",
+      "rawBalance": "$7,457.04"
+    },
+    {
+      "tableRow": 9,
+      "rawDate": "06 Feb",
+      "rawDescription": "Transfer SYNTHETIC SAVINGS",
+      "rawDebit": "",
+      "rawCredit": "215.48",
+      "rawBalance": "$7,672.52"
+    },
+    {
+      "tableRow": 10,
+      "rawDate": "07 Feb",
+      "rawDescription": "SYNTHETIC TRANSIT PASS",
+      "rawDebit": "83.41",
+      "rawCredit": "",
+      "rawBalance": "$7,589.11"
+    },
+    {
+      "tableRow": 11,
+      "rawDate": "07 Feb",
+      "rawDescription": "FIXTURE BOOK SHOP",
+      "rawDebit": "56.28",
+      "rawCredit": "",
+      "rawBalance": "$7,532.83"
+    },
+    {
+      "tableRow": 12,
+      "rawDate": "08 Feb",
+      "rawDescription": "Credit SYNTHETIC PROJECT PAY",
+      "rawDebit": "",
+      "rawCredit": "612.39",
+      "rawBalance": "$8,145.22"
+    }
+  ],
+  "limitations": [
+    "The Statement label is preserved without a value because the source value is obscured.",
+    "Dollar notation alone does not establish an ISO currency code; no currency code is printed.",
+    "No zero-value movement is included because none is demonstrated by the reference.",
+    "The opening-balance entry is evidence, not a zero-value transaction.",
+    "Source table positions and financial-looking descriptions do not establish canonical identities or classifications.",
+    "The fixture preserves a clean visible layout, not the source's redactions, OCR duplication, imagery, or exact typography."
+  ]
+}
