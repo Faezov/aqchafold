@@ -6,3 +6,7 @@ packages:
 # The lint resolver's optional prebuilt binding works without its install script.
 allowBuilds:
   "unrs-resolver@1.12.2": false
+  # Drizzle Kit's tooling uses optional prebuilt binaries without install scripts.
+  "esbuild@0.18.20": false
+  "esbuild@0.25.12": false
+  "esbuild@0.28.2": false
