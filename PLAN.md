@@ -73,8 +73,8 @@ Core finance concepts exist independently of CommBank, SQLite, and React.
 
 ## 3. Local database
 
-- [ ] Add SQLite
-- [ ] Add Drizzle
+- [X] Add SQLite
+- [X] Add Drizzle
 - [ ] Define initial schema
 - [ ] Add first migration
 - [ ] Create household repository

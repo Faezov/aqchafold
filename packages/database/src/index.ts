@@ -1,1 +1,1 @@
-export {};
+export { openLedgeraseDatabase } from "./database";
