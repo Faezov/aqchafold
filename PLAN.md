@@ -36,7 +36,7 @@ We understand the core objects before implementing storage or UI.
 
 - [X] Initialize Git repository
 - [X] Initialize pnpm workspace
-- [ ] Create apps/mobile
+- [X] Create apps/mobile
 - [ ] Create packages/domain
 - [ ] Create packages/database
 - [ ] Create packages/importers
