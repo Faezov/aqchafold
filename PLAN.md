@@ -24,7 +24,7 @@ Do not start later phases early.
 - [X] Define Category
 - [X] Define Household and Member
 - [X] Define Import
-- [X] Define Receipt and ReceiptItem
+- [X] Define Receipt and `feat(database): add merchant repository`
 - [X] Define Budget
 
 Milestone:
@@ -81,7 +81,9 @@ Core finance concepts exist independently of CommBank, SQLite, and React.
 - [X] Create member repository
 - [X] Create account repository
 - [X] Create transaction repository
-- [ ] Create merchant repository
+- [X] Create merchant repository
+- [ ] Create category repository
+- [ ] Create import repository
 - [ ] Test basic persistence
 - [ ] Verify database works on Android
 - [ ] Verify database works on iOS

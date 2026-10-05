@@ -51,8 +51,9 @@ have no Household field in the implemented domain; none is invented here.
 
 ## Repositories
 
-`HouseholdRepository`, `MemberRepository`, `AccountRepository`, and
-`TransactionRepository` take an already-open Drizzle handle.
+`HouseholdRepository`, `MemberRepository`, `AccountRepository`,
+`TransactionRepository`, and `MerchantRepository` take an already-open Drizzle
+handle.
 They do not open connections or apply migrations; tables must exist before use.
 Their synchronous APIs are:
 
@@ -65,6 +66,8 @@ new AccountRepository(database).create(account); // void
 new AccountRepository(database).getById(id); // Account | undefined
 new TransactionRepository(database).create(transaction); // void
 new TransactionRepository(database).getById(id); // Transaction | undefined
+new MerchantRepository(database).create(merchant); // void
+new MerchantRepository(database).getById(id); // Merchant | undefined
 ```
 
 Creates validate through domain constructors; reads reconstruct canonical domain
@@ -110,6 +113,12 @@ Category references stay independently optional. Invalid persisted domain values
 currency mismatches, or dangling references fail explicitly. Pure mapping tests
 cover these conversions; SQLite round-trip and reference checks remain for the
 basic persistence task. No Transaction-to-Import relationship is introduced.
+
+Merchant creation validates through `Merchant` and inserts the supplied ID and
+display name exactly. Reads reconstruct through `Merchant`, rejecting invalid
+persisted fields, or return `undefined` when absent. IDs are unique through the
+existing primary key; duplicate display names remain allowed. Each operation is
+one SQL statement. Category assignment and merchant resolution remain separate.
 
 ### Remaining repository invariants
 
