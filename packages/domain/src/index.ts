@@ -15,3 +15,10 @@ export {
 } from "./category";
 export { Household, type HouseholdOptions } from "./household";
 export { Member, type MemberOptions, type MemberStatus } from "./member";
+export {
+  Import,
+  type ImportOptions,
+  type ImportProcessingStatus,
+  type ImportFingerprint,
+  type ImportParserProvenance,
+} from "./import";

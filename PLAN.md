@@ -64,7 +64,7 @@ The repository builds and tests, but contains almost no product logic.
 - [X] Implement Merchant
 - [X] Implement Category
 - [X] Implement Household / Member
-- [ ] Implement Import model
+- [X] Implement Import model
 
 Milestone:
 Core finance concepts exist independently of CommBank, SQLite, and React.
