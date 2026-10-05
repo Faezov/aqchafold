@@ -51,8 +51,8 @@ have no Household field in the implemented domain; none is invented here.
 
 ## Repositories
 
-`HouseholdRepository`, `MemberRepository`, and `AccountRepository` take an
-already-open Drizzle handle.
+`HouseholdRepository`, `MemberRepository`, `AccountRepository`, and
+`TransactionRepository` take an already-open Drizzle handle.
 They do not open connections or apply migrations; tables must exist before use.
 Their synchronous APIs are:
 
@@ -63,11 +63,12 @@ new MemberRepository(database).create(member); // void
 new MemberRepository(database).getById(id); // Member | undefined
 new AccountRepository(database).create(account); // void
 new AccountRepository(database).getById(id); // Account | undefined
+new TransactionRepository(database).create(transaction); // void
+new TransactionRepository(database).getById(id); // Transaction | undefined
 ```
 
 Creates validate through domain constructors; reads reconstruct canonical domain
-objects. `undefined` distinguishes an empty store or absent Member/Account from a
-record.
+objects and return `undefined` when a record is absent.
 Create operations insert new records; they do not update or silently reuse them.
 
 Household creation checks and inserts in an immediate transaction, enforcing at
@@ -94,10 +95,25 @@ ordinals, duplicate references, missing references, or foreign-Household Members
 fail explicitly; no rows are dropped or ownership meanings repaired. Pure mapping
 tests cover these checks without exercising SQLite persistence.
 
+Transaction creation validates through `Transaction` and checks references before
+inserting in an immediate transaction. Reads use one transaction, reconstruct
+`Money` and `Transaction`, and repeat reference checks. The Account must exist and
+its primary currency must exactly match the Transaction currency. Supplied
+Merchant and Category references must each exist; closed Accounts and archived
+Categories remain valid references.
+
+Signed integer minor units, posting date, optional transaction date, origin, and
+raw descriptions are preserved without inference or normalization. Optional
+fields map between absent domain values and SQL NULL. Imported descriptions are
+required and may be empty; manual descriptions remain optional. Merchant and
+Category references stay independently optional. Invalid persisted domain values,
+currency mismatches, or dangling references fail explicitly. Pure mapping tests
+cover these conversions; SQLite round-trip and reference checks remain for the
+basic persistence task. No Transaction-to-Import relationship is introduced.
+
 ### Remaining repository invariants
 
 - An Import's confirmed Account shares its Household.
-- Transaction currency matches its Account's primary currency.
 - Other entity writes and reads preserve domain validation, mapping SQL NULL to
   absent optional fields without changing raw evidence.
 - Future ownership updates are atomic; archival/closure preserves history.

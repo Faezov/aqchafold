@@ -80,7 +80,7 @@ Core finance concepts exist independently of CommBank, SQLite, and React.
 - [X] Create household repository
 - [X] Create member repository
 - [X] Create account repository
-- [ ] Create transaction repository
+- [X] Create transaction repository
 - [ ] Create merchant repository
 - [ ] Test basic persistence
 - [ ] Verify database works on Android
