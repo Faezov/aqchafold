@@ -6,9 +6,13 @@ host peers; mobile depends on this workspace package so Expo autolinking can
 discover SQLite transitively.
 
 ```ts
-import { openLedgeraseDatabase } from "@aqchafold/database";
+import {
+  migrateLedgeraseDatabase,
+  openLedgeraseDatabase,
+} from "@aqchafold/database";
 
 const database = openLedgeraseDatabase();
+await migrateLedgeraseDatabase(database);
 // When the caller is finished using this connection:
 database.$client.closeSync();
 ```
@@ -19,6 +23,12 @@ the connection with `drizzle-orm/expo-sqlite`. The default filename is
 handle exposes the underlying SQLite connection through its typed `$client`.
 Opening enables SQLite foreign keys and supplies the canonical schema to Drizzle.
 Importing this package does not open a database, and there is no global singleton.
+
+`migrateLedgeraseDatabase(database): Promise<void>` explicitly applies pending
+migrations from the existing generated `drizzle/migrations.js` bundle using
+Drizzle's Expo SQLite migrator. Await it before using repositories. Reapplying
+migrations uses Drizzle's migration journal; migration failures propagate to the
+caller. The mobile Babel/Metro configuration bundles generated SQL as strings.
 
 ## Initial schema
 
@@ -111,8 +121,9 @@ fields map between absent domain values and SQL NULL. Imported descriptions are
 required and may be empty; manual descriptions remain optional. Merchant and
 Category references stay independently optional. Invalid persisted domain values,
 currency mismatches, or dangling references fail explicitly. Pure mapping tests
-cover these conversions; SQLite round-trip and reference checks remain for the
-basic persistence task. No Transaction-to-Import relationship is introduced.
+cover these conversions. The development smoke check exercises SQLite round-trips
+and selected reference checks when run on a native runtime. No Transaction-to-Import
+relationship is introduced.
 
 Merchant creation validates through `Merchant` and inserts the supplied ID and
 display name exactly. Reads reconstruct through `Merchant`, rejecting invalid
@@ -146,7 +157,39 @@ files together; do not maintain an independent SQL schema or edit historical
 migrations. A second generation with an unchanged schema should create nothing.
 
 The opener does not create tables, apply migrations, or seed application data.
-Runtime migration execution, other repositories, persistence tests, and Android/iOS
-runtime verification remain deferred. Receipt/Budget, observations, reconciliation,
+Other repositories and broader persistence coverage remain deferred.
+Receipt/Budget, observations, reconciliation,
 balances, duplicate matching, and Transaction-to-Import linkage are not implemented
 domain structures and have no tables or invented fields here.
+
+## Development persistence smoke check
+
+From the repository root, run:
+
+```sh
+pnpm --filter @aqchafold/mobile db:smoke
+```
+
+Open that development session on Android or iOS using a compatible Expo Go or
+development build. The app entry runs the check only when both `__DEV__` and
+`EXPO_PUBLIC_LEDGERASE_DATABASE_SMOKE=1` are enabled. Normal startup and release
+behavior do not execute it, and no debug UI is added. The harness is available
+only through the separate `@aqchafold/database/development` entry point.
+
+The check creates a uniquely named `ledgerase-persistence-smoke-*.db` file and
+uses only synthetic data. It applies generated migrations, creates and reads
+Household, active/archived Members, Account ownership variants, Merchant, and
+Transaction through the repositories. A synthetic Category is inserted directly
+with Drizzle to exercise independent Category references without another
+repository. It checks signed Money, explicit currency, dates, origins, raw
+descriptions, optional fields, and selected invalid-write rejection.
+
+It then closes and reopens the same file, reapplies migrations, and checks the
+stored canonical values again. A `finally` block closes the connection and
+attempts deletion even if a check or close fails. It never opens `ledgerase.db`.
+The app logs only a fixed PASS/FAIL marker and platform; no rows are logged. PASS
+is emitted only after checks and cleanup complete successfully.
+
+Only an actual native run ending with `[Ledgerase database smoke] PASS (android)`
+or `PASS (ios)` verifies that platform. Typecheck, bundle export, and autolinking
+do not verify SQLite execution.

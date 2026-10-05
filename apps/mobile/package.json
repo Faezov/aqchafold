@@ -5,7 +5,8 @@
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
-    "ios": "expo start --ios"
+    "ios": "expo start --ios",
+    "db:smoke": "EXPO_PUBLIC_LEDGERASE_DATABASE_SMOKE=1 expo start --clear"
   },
   "dependencies": {
     "@aqchafold/database": "workspace:*",
@@ -15,6 +16,8 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "babel-plugin-inline-import": "3.0.0",
+    "babel-preset-expo": "57.0.13",
     "typescript": "~6.0.3"
   },
   "private": true
