@@ -62,7 +62,7 @@ The repository builds and tests, but contains almost no product logic.
 - [X] Test transaction sign convention
 - [X] Implement Account
 - [X] Implement Merchant
-- [ ] Implement Category
+- [X] Implement Category
 - [ ] Implement Household / Member
 - [ ] Implement Import model
 

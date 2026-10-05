@@ -8,3 +8,8 @@ export {
   type AccountOwnership,
 } from "./account";
 export { Merchant, type MerchantOptions } from "./merchant";
+export {
+  Category,
+  type CategoryOptions,
+  type CategoryStatus,
+} from "./category";
