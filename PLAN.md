@@ -58,8 +58,8 @@ The repository builds and tests, but contains almost no product logic.
 
 - [X] Implement Money
 - [X] Test Money arithmetic and currency invariants
-- [ ] Implement Transaction
-- [ ] Test transaction sign convention
+- [X] Implement Transaction
+- [X] Test transaction sign convention
 - [ ] Implement Account
 - [ ] Implement Merchant
 - [ ] Implement Category
