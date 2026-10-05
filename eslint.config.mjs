@@ -14,7 +14,7 @@ export default defineConfig([
     "statements/**",
   ]),
   {
-    files: ["packages/**/*.ts"],
+    files: ["packages/**/*.ts", "vitest.config.ts"],
     extends: [js.configs.recommended, tseslint.configs.recommended],
   },
   {

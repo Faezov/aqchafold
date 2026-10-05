@@ -45,7 +45,7 @@ We understand the core objects before implementing storage or UI.
 - [X] Create packages/budgeting
 - [X] Configure TypeScript
 - [X] Configure linting / formatting
-- [ ] Configure Vitest
+- [X] Configure Vitest
 - [ ] Add private fixture paths to .gitignore
 - [ ] Verify one test runs successfully
 
