@@ -157,7 +157,7 @@ raw description
 - [X] Implement merchant aliases
 - [X] Implement persistent merchant rules
 - [X] Add confirmed / suggested / unknown status
-- [ ] Ensure user-confirmed rules have highest priority
+- [X] Ensure user-confirmed rules have highest priority
 - [ ] Aggregate unknown transactions by merchant
 - [ ] Rank review queue by financial importance
 - [ ] Create merchant review screen

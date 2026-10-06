@@ -102,16 +102,34 @@ by the caller; these helpers do not discover identities or verify authority.
 The unknown union branch uses `merchantId?: never` to reject accidental string
 identities in structural assignments; the helper itself returns only `status`.
 
-This API represents state only. Priority between aliases, persistent rules, and
-other suggestion sources is deliberately not implemented. Neither aliases nor
-rules nor normalization output are assigned a state by these helpers. Persistence
-of confirmation and application to Transactions remain separate. Outcomes contain
+The state constructors do not choose sources or look up Merchants. Outcomes contain
 no descriptions, categories, or source metadata; constructing them performs no
 normalization, lookup, persistence, or assignment.
 
+`resolveMerchantIdentity({ confirmedMerchantId?, suggestedMerchantId? })` is the
+pure synchronous priority resolver, returning `MerchantResolution`:
+
+`user-confirmed persistent rule > suggestion > unknown`
+
+Every v0.1 persistent rule represents an authoritative household correction: the
+Household explicitly confirmed that exact normalized description maps to the
+Merchant. Callers obtain that Household-specific rule separately and pass its ID
+as `confirmedMerchantId`. An alias or other unconfirmed candidate supplies
+`suggestedMerchantId`; exact alias matching by itself is not user confirmation.
+A valid confirmed ID wins even when the suggestion names a different Merchant.
+No conflict error is raised merely because valid IDs disagree.
+
+Both supplied IDs are validated before selection, in confirmed-then-suggested
+order. An invalid suggestion throws `TypeError` even when confirmation would win;
+malformed caller state is not hidden by priority. `undefined` means absent;
+otherwise IDs must be nonblank strings and are preserved exactly. The result is
+frozen and deterministic. The resolver imports no database code, applies nothing
+to Transactions, and does not create or overwrite rules. Actual user confirmation
+UI and automatic application to Transactions arrive later.
+
 Tests check the public contracts and production behavior using synthetic
-descriptions. Location/noise suffix removal, broader identity resolution, rule
-priority, category assignment, and UI remain separate later tasks.
+descriptions. Location/noise suffix removal, broader identity resolution, category
+assignment, and UI remain separate later tasks.
 
 There are currently no production location/noise suffix-removal rules. The
 [tracked CommBank reference](../../fixtures/bank-statements/commbank/browser-summary-01.reference.json)

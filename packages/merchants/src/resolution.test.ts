@@ -1,6 +1,8 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   confirmedMerchant,
+  resolveMerchantAlias,
+  resolveMerchantIdentity,
   suggestedMerchant,
   unknownMerchant,
   type MerchantResolution,
@@ -105,5 +107,119 @@ describe("MerchantResolution", () => {
     }
     expect(unknownMerchant()).toEqual(results[2]);
     expect(Object.hasOwn(results[2], "merchantId")).toBe(false);
+  });
+});
+
+describe("resolveMerchantIdentity", () => {
+  it.each([
+    [{}, { status: "unknown" }],
+    [
+      { confirmedMerchantId: "confirmed-id" },
+      { status: "confirmed", merchantId: "confirmed-id" },
+    ],
+    [
+      { suggestedMerchantId: "suggested-id" },
+      { status: "suggested", merchantId: "suggested-id" },
+    ],
+    [
+      {
+        confirmedMerchantId: "confirmed-id",
+        suggestedMerchantId: "confirmed-id",
+      },
+      { status: "confirmed", merchantId: "confirmed-id" },
+    ],
+    [
+      {
+        confirmedMerchantId: "confirmed-id",
+        suggestedMerchantId: "different-id",
+      },
+      { status: "confirmed", merchantId: "confirmed-id" },
+    ],
+  ] as const)("resolves %j by authoritative priority", (input, expected) => {
+    const result = resolveMerchantIdentity(input);
+    expect(result).toEqual(expected);
+    expect(resolveMerchantIdentity(input)).toEqual(result);
+    expect(Object.isFrozen(result)).toBe(true);
+  });
+
+  it("uses named facts regardless of property insertion order", () => {
+    const first = {
+      confirmedMerchantId: "confirmed-id",
+      suggestedMerchantId: "different-id",
+    };
+    const reversed = {
+      suggestedMerchantId: first.suggestedMerchantId,
+      confirmedMerchantId: first.confirmedMerchantId,
+    };
+    expect(resolveMerchantIdentity(first)).toEqual(
+      resolveMerchantIdentity(reversed),
+    );
+    expect(resolveMerchantIdentity(reversed)).toEqual(
+      confirmedMerchant("confirmed-id"),
+    );
+  });
+
+  it.each(["", " \t\n\u00a0 ", null, 42])(
+    "rejects invalid IDs %j even for an overridden suggestion",
+    (invalid) => {
+      const merchantId = invalid as unknown as string;
+      expect(() =>
+        resolveMerchantIdentity({ confirmedMerchantId: merchantId }),
+      ).toThrow(TypeError);
+      expect(() =>
+        resolveMerchantIdentity({ suggestedMerchantId: merchantId }),
+      ).toThrow(TypeError);
+      expect(() =>
+        resolveMerchantIdentity({
+          confirmedMerchantId: "confirmed-id",
+          suggestedMerchantId: merchantId,
+        }),
+      ).toThrow(TypeError);
+    },
+  );
+
+  it("treats undefined as absent", () => {
+    expect(
+      resolveMerchantIdentity({
+        confirmedMerchantId: undefined,
+        suggestedMerchantId: undefined,
+      }),
+    ).toEqual(unknownMerchant());
+  });
+
+  it("preserves opaque IDs and leaves frozen caller state unchanged", () => {
+    const input = Object.freeze({
+      confirmedMerchantId: " \tMiXeD/Café/東京 #42\n ",
+      suggestedMerchantId: " different/id ",
+    });
+    const before = { ...input };
+    expect(resolveMerchantIdentity(input)).toEqual({
+      status: "confirmed",
+      merchantId: input.confirmedMerchantId,
+    });
+    expect(
+      resolveMerchantIdentity({
+        suggestedMerchantId: input.suggestedMerchantId,
+      }),
+    ).toEqual({
+      status: "suggested",
+      merchantId: input.suggestedMerchantId,
+    });
+    expect(input).toEqual(before);
+  });
+
+  it("accepts an alias as a suggestion without letting it override confirmation", () => {
+    const suggestedMerchantId = resolveMerchantAlias("Synthetic Shop", [
+      { normalizedDescription: "Synthetic Shop", merchantId: "alias-id" },
+    ]);
+    expect(resolveMerchantIdentity({ suggestedMerchantId })).toEqual(
+      suggestedMerchant("alias-id"),
+    );
+    expect(
+      resolveMerchantIdentity({
+        confirmedMerchantId: "confirmed-id",
+        suggestedMerchantId,
+      }),
+    ).toEqual(confirmedMerchant("confirmed-id"));
   });
 });

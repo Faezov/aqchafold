@@ -38,6 +38,31 @@ export function unknownMerchant(): Extract<
   return Object.freeze({ status: "unknown" });
 }
 
+/**
+ * User-confirmed identity > unconfirmed suggestion > unknown.
+ * Callers obtain Household-scoped confirmed rules and lower-priority candidates
+ * separately. Validate every supplied ID, including an overridden suggestion.
+ * Undefined means absent; no normalization, database access, or assignment occurs.
+ */
+export function resolveMerchantIdentity(input: {
+  readonly confirmedMerchantId?: string;
+  readonly suggestedMerchantId?: string;
+}): MerchantResolution {
+  if (typeof input !== "object" || input === null) {
+    throw new TypeError("Merchant resolution input must be an object.");
+  }
+  const { confirmedMerchantId, suggestedMerchantId } = input;
+  const confirmed =
+    confirmedMerchantId === undefined
+      ? undefined
+      : confirmedMerchant(confirmedMerchantId);
+  const suggested =
+    suggestedMerchantId === undefined
+      ? undefined
+      : suggestedMerchant(suggestedMerchantId);
+  return confirmed ?? suggested ?? unknownMerchant();
+}
+
 function assertMerchantId(merchantId: string): void {
   if (typeof merchantId !== "string" || merchantId.trim().length === 0) {
     throw new TypeError("Merchant resolution ID must be a nonblank string.");

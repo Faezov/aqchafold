@@ -14,7 +14,11 @@ import {
 } from "@aqchafold/domain";
 import { drizzle } from "drizzle-orm/expo-sqlite/driver";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { normalizePaymentProcessorPrefix } from "../../merchants/src/index";
+import {
+  normalizePaymentProcessorPrefix,
+  resolveMerchantAlias,
+  resolveMerchantIdentity,
+} from "../../merchants/src/index";
 import { AccountRepository } from "./account-repository";
 import { HouseholdRepository } from "./household-repository";
 import { MerchantRepository } from "./merchant-repository";
@@ -111,6 +115,49 @@ describe("MerchantRuleRepository with real SQLite", () => {
     ).toEqual(source);
     expect(repository.list(source.householdId)).toEqual([source]);
     expect(source).toEqual(before);
+  });
+
+  it("keeps an explicitly user-confirmed stored mapping ahead of a conflicting alias suggestion", () => {
+    const source = Object.freeze(rule());
+    // Explicit creation represents the Household's confirmation of this mapping.
+    repository.create(source);
+    const confirmedMerchantId = repository.get(
+      source.householdId,
+      source.normalizedDescription,
+    )?.merchantId;
+    const suggestedMerchantId = resolveMerchantAlias(
+      source.normalizedDescription,
+      [
+        {
+          normalizedDescription: source.normalizedDescription,
+          merchantId: "merchant-b",
+        },
+      ],
+    );
+
+    expect(
+      resolveMerchantIdentity({ confirmedMerchantId, suggestedMerchantId }),
+    ).toEqual({ status: "confirmed", merchantId: "merchant-a" });
+    expect(resolveMerchantIdentity({ suggestedMerchantId })).toEqual({
+      status: "suggested",
+      merchantId: "merchant-b",
+    });
+    expect(resolveMerchantIdentity({ confirmedMerchantId })).toEqual({
+      status: "confirmed",
+      merchantId: "merchant-a",
+    });
+
+    expect(
+      repository.get("household-b", source.normalizedDescription),
+    ).toBeUndefined();
+    expect(
+      repository.get(source.householdId, source.normalizedDescription),
+    ).toEqual(source);
+    expect(repository.list(source.householdId)).toEqual([source]);
+    expect(
+      store.sqlite.prepare("SELECT count(*) AS count FROM transactions").get()
+        ?.count,
+    ).toBe(0);
   });
 
   it("preserves whitespace, punctuation, and Unicode in the exact key", () => {

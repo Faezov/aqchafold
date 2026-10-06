@@ -2,7 +2,7 @@ import { and, asc, eq } from "drizzle-orm";
 import type { openLedgeraseDatabase } from "./database";
 import { households, merchantRules, merchants } from "./schema";
 
-/** Durable exact identity mapping within one Household, after normalization. */
+/** Durable user-confirmed exact identity mapping within one Household, after normalization. */
 export type MerchantRule = {
   readonly householdId: string;
   readonly normalizedDescription: string;
@@ -14,12 +14,13 @@ type ReadDatabase = Pick<ReturnType<typeof openLedgeraseDatabase>, "select">;
 // Only repository-owned errors are safe to propagate without SQL parameters.
 class MerchantRuleError extends Error {}
 
-/** Explicit local mappings; never derives rules from or applies them to Transactions. */
+/** User-confirmed local mappings; never derives rules from or applies them to Transactions. */
 export class MerchantRuleRepository {
   constructor(
     private readonly database: ReturnType<typeof openLedgeraseDatabase>,
   ) {}
 
+  /** Call only after the Household has explicitly confirmed this exact mapping. */
   create(rule: MerchantRule): void {
     const validated = validateRule(rule);
     try {

@@ -63,8 +63,9 @@ Account, Transaction's Account and optional Merchant/Category, and ownership
 Member rows. No cascading deletes erase history. Merchant and Category currently
 have no Household field in the implemented domain; none is invented here.
 
-`merchant_rules` stores local, durable, Household-scoped exact mappings after
-textual normalization: `household_id` + `normalized_description` → `merchant_id`.
+`merchant_rules` stores local, durable, user-confirmed Household-scoped exact
+mappings after textual normalization:
+`household_id` + `normalized_description` → `merchant_id`.
 The composite primary key enforces uniqueness within each Household; all three
 columns are required, with foreign keys to existing Households and Merchants.
 No separate rule ID is needed for the current exact-key operations. The forward
@@ -227,6 +228,15 @@ pure in-memory `MerchantAlias` mapping, but includes durable Household scope.
 SQLite concerns remain in this package; the pure alias resolver is independent
 of persistence and does not load these rules automatically.
 
+Every v0.1 persistent rule means the Household has explicitly confirmed the exact
+description-to-Merchant mapping. These are authoritative household corrections;
+the caller must establish confirmation before calling `create`. The repository
+validates fields/references, not how confirmation was obtained. A separate status
+or source column would only restate this invariant. Callers pass a rule's
+`merchantId` as `confirmedMerchantId` to the pure `resolveMerchantIdentity`
+function, where it always wins over a conflicting valid suggestion or alias
+candidate.
+
 Rule creation validates nonblank strings without changing their values, checks
 both references, and inserts in one immediate transaction. Both identical
 duplicates and conflicting mappings for the same Household/description are
@@ -241,11 +251,11 @@ unmatched descriptions return `undefined`; listing returns only one Household's
 rules in BINARY description order. Reads validate stored values and references
 in one transaction. Errors omit SQL parameters and descriptor contents.
 
-Rules have no confirmed/suggested/unknown status, confidence, priority, or Category.
-They are created only by an explicit repository call: normalization and importing
-Transactions do not create them. Rules are not yet automatically applied to
-Transactions, and creation/lookup never changes `Transaction.rawDescription` or
-its Merchant association. No automatic learning or built-in rule catalog exists.
+Rules have no status column, confidence score, priority field, or Category.
+Normalization, importing, and suggestions never create rules automatically.
+Rules are not yet automatically applied to Transactions, and creation/lookup never
+changes `Transaction.rawDescription` or its Merchant association. User confirmation
+UI arrives later. No automatic learning or built-in rule catalog exists.
 
 ### Remaining repository invariants
 
