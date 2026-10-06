@@ -8,7 +8,10 @@ import {
   commbankBrowserSummaryImporter,
   convertCommBankBrowserSummaryToTransactions,
 } from "@aqchafold/importers-commbank";
-import { fingerprintDocumentInput } from "@aqchafold/importers-core";
+import {
+  fingerprintDocumentInput,
+  type ReconciliationStatus,
+} from "@aqchafold/importers-core";
 import type { SelectedDocument } from "../platform/pick-statement-document";
 
 export type ImportStatementOptions = {
@@ -23,8 +26,19 @@ export type ImportStatementOptions = {
   signal?: AbortSignal;
 };
 
+export type ReconciliationSummary = {
+  totalRows: number;
+  verifiedRows: number;
+  closingBalance: ReconciliationStatus;
+};
+
 export type ImportStatementResult =
-  | { status: "imported"; transactionCount: number }
+  | {
+      status: "imported";
+      transactionCount: number;
+      reconciliation: ReconciliationSummary;
+    }
+  | { status: "reconciliation-failed"; reconciliation: ReconciliationSummary }
   | { status: "already-imported" }
   | { status: "unsupported" }
   | { status: "failed" };
@@ -51,6 +65,19 @@ export async function importStatement({
     if (score !== 1) return { status: "unsupported" };
     const parsed = await commbankBrowserSummaryImporter.parse(input);
     if (signal?.aborted) return { status: "failed" };
+    const checks = parsed.reconciliation;
+    if (!checks) return { status: "failed" };
+    const reconciliation: ReconciliationSummary = {
+      totalRows: checks.rows.length,
+      verifiedRows: checks.rows.filter(({ status }) => status === "verified")
+        .length,
+      closingBalance: checks.closingBalance,
+    };
+    if (
+      reconciliation.verifiedRows !== reconciliation.totalRows ||
+      reconciliation.closingBalance !== "verified"
+    )
+      return { status: "reconciliation-failed", reconciliation };
     const account = accountRepository.getById(accountId);
     if (!account || account.primaryCurrency !== confirmedCurrency)
       return { status: "failed" };
@@ -86,7 +113,11 @@ export async function importStatement({
         ? { status: "already-imported" }
         : { status: "failed" };
     }
-    return { status: "imported", transactionCount: transactions.length };
+    return {
+      status: "imported",
+      transactionCount: transactions.length,
+      reconciliation,
+    };
   } catch {
     return { status: "failed" };
   }

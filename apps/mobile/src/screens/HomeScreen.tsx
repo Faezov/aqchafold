@@ -190,7 +190,9 @@ export default function HomeScreen({
                 ? "Already imported"
                 : result.status === "unsupported"
                   ? "Unsupported statement"
-                  : "Import failed"}
+                  : result.status === "reconciliation-failed"
+                    ? "Reconciliation could not be verified"
+                    : "Import failed"}
           </Text>
           {result.status === "imported" ? (
             <>
@@ -203,6 +205,23 @@ export default function HomeScreen({
               {result.filename && (
                 <Text style={styles.description}>File: {result.filename}</Text>
               )}
+              <Text style={styles.description}>
+                Reconciliation:{" "}
+                {result.reconciliation.verifiedRows ===
+                  result.reconciliation.totalRows &&
+                result.reconciliation.closingBalance === "verified"
+                  ? "Verified"
+                  : "Could not be verified"}
+              </Text>
+              <Text style={styles.description}>
+                {result.reconciliation.verifiedRows} of{" "}
+                {result.reconciliation.totalRows} transaction rows verified
+              </Text>
+              <Text style={styles.description}>
+                {result.reconciliation.closingBalance === "verified"
+                  ? "Closing balance verified"
+                  : "Closing balance could not be verified"}
+              </Text>
             </>
           ) : (
             <Text style={styles.description}>
@@ -210,7 +229,9 @@ export default function HomeScreen({
                 ? "This exact statement was already imported. No transactions were added."
                 : result.status === "unsupported"
                   ? "Ledgerase could not recognize this PDF as the supported CommBank Transaction Summary format."
-                  : "The statement could not be imported. Please try again."}
+                  : result.status === "reconciliation-failed"
+                    ? "No transactions were imported"
+                    : "The statement could not be imported. Please try again."}
             </Text>
           )}
         </View>

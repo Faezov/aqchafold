@@ -9,9 +9,14 @@ const document = {
   size: 5471,
 };
 const importing: ImportState = { status: "importing", document };
+const reconciliation = {
+  totalRows: 11,
+  verifiedRows: 11,
+  closingBalance: "verified" as const,
+};
 const successful = importStateReducer(importing, {
   type: "finished",
-  result: { status: "imported", transactionCount: 11 },
+  result: { status: "imported", transactionCount: 11, reconciliation },
   accountLabel: "Everyday",
 });
 
@@ -22,6 +27,7 @@ it("snapshots only the successful count, Account label, and optional filename", 
     result: {
       status: "imported",
       transactionCount: 11,
+      reconciliation,
       accountLabel: "Everyday",
       filename: "statement.pdf",
     },
@@ -31,7 +37,7 @@ it("snapshots only the successful count, Account label, and optional filename", 
       { status: "importing", document: { uri: document.uri } },
       {
         type: "finished",
-        result: { status: "imported", transactionCount: 11 },
+        result: { status: "imported", transactionCount: 11, reconciliation },
         accountLabel: "Everyday",
       },
     ),
@@ -41,6 +47,7 @@ it("snapshots only the successful count, Account label, and optional filename", 
     result: {
       status: "imported",
       transactionCount: 11,
+      reconciliation,
       accountLabel: "Everyday",
     },
   });
@@ -50,12 +57,75 @@ it.each(["already-imported", "unsupported", "failed"] as const)(
   "keeps %s distinct and reports no newly imported count or source details",
   (status) => {
     expect(
-      importStateReducer(importing, {
+      importStateReducer(importStateReducer(successful, { type: "started" }), {
         type: "finished",
-        result: { status },
+        result: { status, reconciliation } as ImportStatementResult,
         accountLabel: "Everyday",
       }),
     ).toEqual({ status: "finished", document, result: { status } });
+  },
+);
+
+it("copies reconciliation counts independently of the Transaction count", () => {
+  const checks = {
+    totalRows: 3,
+    verifiedRows: 3,
+    closingBalance: "verified" as const,
+  };
+  const state = importStateReducer(importing, {
+    type: "finished",
+    result: {
+      status: "imported",
+      transactionCount: 11,
+      reconciliation: checks,
+    },
+    accountLabel: "Everyday",
+  });
+  expect(state).toMatchObject({
+    result: { transactionCount: 11, reconciliation: checks },
+  });
+});
+
+it("snapshots an explicit unverified outcome without success details", () => {
+  const checks = {
+    totalRows: 11,
+    verifiedRows: 10,
+    closingBalance: "mismatch" as const,
+  };
+  expect(
+    importStateReducer(importing, {
+      type: "finished",
+      result: { status: "reconciliation-failed", reconciliation: checks },
+      accountLabel: "Everyday",
+    }),
+  ).toEqual({
+    status: "finished",
+    document,
+    result: { status: "reconciliation-failed", reconciliation: checks },
+  });
+});
+
+it.each(["imported", "reconciliation-failed"] as const)(
+  "snapshots only summary primitives for %s without raw values or shared mutation",
+  (status) => {
+    const checks = {
+      ...reconciliation,
+      rawBalance: "private source balance",
+      warnings: ["private source diagnostic"],
+      rows: [{ position: { page: 1, row: 1 }, rawText: "private row" }],
+    };
+    const state = importStateReducer(importing, {
+      type: "finished",
+      result: { status, transactionCount: 11, reconciliation: checks },
+      accountLabel: "Everyday",
+    });
+    expect(state.status).toBe("finished");
+    if (state.status !== "finished" || !("reconciliation" in state.result))
+      throw new Error("Expected a reconciliation snapshot.");
+    expect(state.result.reconciliation).toEqual(reconciliation);
+    expect(state.result.reconciliation).not.toBe(checks);
+    checks.verifiedRows = 0;
+    expect(state.result.reconciliation.verifiedRows).toBe(11);
   },
 );
 

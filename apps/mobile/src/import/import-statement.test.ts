@@ -130,7 +130,10 @@ beforeEach(() => {
   };
 });
 
-afterEach(() => store.sqlite.close());
+afterEach(() => {
+  vi.restoreAllMocks();
+  store.sqlite.close();
+});
 
 function expectNoPersistence() {
   expect(transactions.list()).toEqual([]);
@@ -142,6 +145,11 @@ it("imports exact selected bytes as eleven canonical Transactions and a complete
   expect(await importStatement(options)).toEqual({
     status: "imported",
     transactionCount: 11,
+    reconciliation: {
+      totalRows: 11,
+      verifiedRows: 11,
+      closingBalance: "verified",
+    },
   });
   expect(options.readDocumentBytes).toHaveBeenCalledExactlyOnceWith(
     options.document.uri,
@@ -177,6 +185,11 @@ it("refuses an identical artifact with another filename and preserves a failed r
   expect(await importStatement(options)).toEqual({
     status: "imported",
     transactionCount: 11,
+    reconciliation: {
+      totalRows: 11,
+      verifiedRows: 11,
+      closingBalance: "verified",
+    },
   });
   const before = transactions.list();
   expect(
@@ -218,7 +231,129 @@ it("refuses an unreconciled supported statement before creating an attempt", asy
       ...options,
       readDocumentBytes: async () => changed,
     }),
-  ).toEqual({ status: "failed" });
+  ).toEqual({
+    status: "reconciliation-failed",
+    reconciliation: {
+      totalRows: 11,
+      verifiedRows: 11,
+      closingBalance: "mismatch",
+    },
+  });
+  expectNoPersistence();
+});
+
+it.each([
+  { debit: "38.48", status: "mismatch" },
+  { debit: "38.4x", status: "unresolved" },
+] as const)(
+  "reports $status row checks from a supported PDF without importing",
+  async ({ debit, status }) => {
+    const changed = bytes.slice();
+    const offset = Buffer.from(changed).indexOf("(38.47)");
+    expect(offset).toBeGreaterThan(0);
+    changed.set(new TextEncoder().encode(debit), offset + 1);
+    const parsed = await commbankBrowserSummaryImporter.parse({
+      bytes: changed,
+    });
+    expect(parsed.reconciliation?.rows[0].status).toBe(status);
+    expect(
+      await importStatement({
+        ...options,
+        readDocumentBytes: async () => changed,
+      }),
+    ).toEqual({
+      status: "reconciliation-failed",
+      reconciliation: {
+        totalRows: 11,
+        verifiedRows: 10,
+        closingBalance: "verified",
+      },
+    });
+    expectNoPersistence();
+  },
+);
+
+it("reports unresolved closing evidence without treating verified rows as a successful import", async () => {
+  const changed = bytes.slice();
+  const closing = "($8,145.22)";
+  const offset = Buffer.from(changed).indexOf(closing);
+  expect(offset).toBeGreaterThan(0);
+  changed[offset + closing.length - 2] = "x".charCodeAt(0);
+  const parsed = await commbankBrowserSummaryImporter.parse({ bytes: changed });
+  expect(parsed.reconciliation?.closingBalance).toBe("unresolved");
+  expect(
+    await importStatement({
+      ...options,
+      readDocumentBytes: async () => changed,
+    }),
+  ).toEqual({
+    status: "reconciliation-failed",
+    reconciliation: {
+      totalRows: 11,
+      verifiedRows: 11,
+      closingBalance: "unresolved",
+    },
+  });
+  expectNoPersistence();
+});
+
+it("counts the explicit reconciliation checks instead of source rows and copies no source details", async () => {
+  const parsed = await commbankBrowserSummaryImporter.parse({ bytes });
+  expect(parsed.rows).toHaveLength(11);
+  vi.spyOn(commbankBrowserSummaryImporter, "parse").mockResolvedValueOnce({
+    ...parsed,
+    reconciliation: {
+      rows: [
+        { position: { page: 1, row: 1 }, status: "verified" },
+        { position: { page: 1, row: 2 }, status: "unresolved" },
+      ],
+      closingBalance: "verified",
+    },
+    warnings: ["Sensitive source contents must not appear in the result"],
+  });
+  expect(await importStatement(options)).toEqual({
+    status: "reconciliation-failed",
+    reconciliation: {
+      totalRows: 2,
+      verifiedRows: 1,
+      closingBalance: "verified",
+    },
+  });
+  expectNoPersistence();
+});
+
+it("returns a generic failure if the parser performed no reconciliation", async () => {
+  const parsed = await commbankBrowserSummaryImporter.parse({ bytes });
+  vi.spyOn(commbankBrowserSummaryImporter, "parse").mockResolvedValueOnce({
+    ...parsed,
+    reconciliation: undefined,
+  });
+  expect(await importStatement(options)).toEqual({ status: "failed" });
+  expectNoPersistence();
+});
+
+it("still lets the converter reject incomplete verified checks without reporting success", async () => {
+  const parsed = await commbankBrowserSummaryImporter.parse({ bytes });
+  vi.spyOn(commbankBrowserSummaryImporter, "parse").mockResolvedValueOnce({
+    ...parsed,
+    reconciliation: {
+      rows: parsed.reconciliation!.rows.slice(1),
+      closingBalance: "verified",
+    },
+  });
+  expect(await importStatement(options)).toEqual({ status: "failed" });
+  expectNoPersistence();
+});
+
+it("returns no reconciliation or conversion diagnostics if verified checks cannot produce canonical Transactions", async () => {
+  const parsed = await commbankBrowserSummaryImporter.parse({ bytes });
+  vi.spyOn(commbankBrowserSummaryImporter, "parse").mockResolvedValueOnce({
+    ...parsed,
+    rows: parsed.rows.map((row, index) =>
+      index === 0 ? { ...row, postingDate: undefined } : row,
+    ),
+  });
+  expect(await importStatement(options)).toEqual({ status: "failed" });
   expectNoPersistence();
 });
 

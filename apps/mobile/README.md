@@ -91,17 +91,27 @@ Import ID with source page/row positions through the existing converter callback
 they are unrelated to financial values or filename. The original filename is
 optional display metadata and does not affect fingerprint identity.
 
-The coordinator returns explicit imported/duplicate/unsupported/failed outcomes;
-success includes only the number of newly persisted Transactions. Home shows a
+The coordinator returns explicit import outcomes; success reports the number of
+newly persisted Transactions. Home shows a
 plain result with that count, the Account label, and filename when available.
 Duplicate, unsupported-format, and failure results have distinct fixed messages
 without identifiers, financial source contents, or underlying diagnostics.
+
+Reconciliation is summarized directly from `ParsedStatement.reconciliation` as
+total row checks, verified row checks, and the explicit closing-check status.
+Successful results show the verified row count and closing status separately from
+the imported Transaction count. A parsed mismatch or unresolved check returns
+`reconciliation-failed` before conversion or persistence; Home says reconciliation
+could not be verified and no Transactions were imported. Other failures remain
+generic, and duplicate/unsupported/generic failure results carry no reconciliation.
 
 The app root keeps ready/importing/finished state separate from Account availability.
 Finished results remain visible across Accounts/Transactions navigation during the
 session. Successful document selection clears the prior result; picker cancellation
 preserves it. A new import replaces it, while changing the selected Account alone
 does not rewrite the prior result. Results are not persisted across app restarts.
+Reconciliation fields are copied into the result snapshot with no source values,
+positions, warnings, or diagnostics, and follow the same session lifecycle.
 
 Concurrent imports and selection changes are blocked
 while processing; navigation works when idle. Root cleanup cancels pending work

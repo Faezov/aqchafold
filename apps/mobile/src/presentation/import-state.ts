@@ -1,13 +1,18 @@
-import type { ImportStatementResult } from "../import/import-statement";
+import type {
+  ImportStatementResult,
+  ReconciliationSummary,
+} from "../import/import-statement";
 import type { SelectedDocument } from "../platform/pick-statement-document";
 
 export type ImportResult =
   | {
       status: "imported";
       transactionCount: number;
+      reconciliation: ReconciliationSummary;
       accountLabel: string;
       filename?: string;
     }
+  | { status: "reconciliation-failed"; reconciliation: ReconciliationSummary }
   | { status: "already-imported" }
   | { status: "unsupported" }
   | { status: "failed" };
@@ -47,11 +52,31 @@ export function importStateReducer(
           ? {
               status: "imported",
               transactionCount: action.result.transactionCount,
+              reconciliation: snapshotReconciliation(
+                action.result.reconciliation,
+              ),
               accountLabel: action.accountLabel,
               ...(state.document.name ? { filename: state.document.name } : {}),
             }
-          : { status: action.result.status };
+          : action.result.status === "reconciliation-failed"
+            ? {
+                status: "reconciliation-failed",
+                reconciliation: snapshotReconciliation(
+                  action.result.reconciliation,
+                ),
+              }
+            : { status: action.result.status };
       return { status: "finished", document: state.document, result };
     }
   }
+}
+
+function snapshotReconciliation(
+  summary: ReconciliationSummary,
+): ReconciliationSummary {
+  return {
+    totalRows: summary.totalRows,
+    verifiedRows: summary.verifiedRows,
+    closingBalance: summary.closingBalance,
+  };
 }

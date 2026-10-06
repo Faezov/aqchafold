@@ -131,7 +131,7 @@ Keep this intentionally ugly/simple.
 - [X] Add document picker
 - [X] Import a CommBank statement from the phone
 - [X] Show import result
-- [ ] Show reconciliation status
+- [X] Show reconciliation status
 - [ ] Display imported transactions
 
 Milestone:
