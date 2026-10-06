@@ -1,5 +1,7 @@
 {
   "name": "@aqchafold/merchants",
   "version": "0.0.0",
-  "private": true
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts"
 }

@@ -150,7 +150,7 @@ raw description
 → merchant
 → category
 
-- [ ] Define merchant normalization interface
+- [X] Define merchant normalization interface
 - [ ] Normalize payment processor prefixes
 - [ ] Normalize obvious location/noise suffixes
 - [ ] Preserve original transaction description
