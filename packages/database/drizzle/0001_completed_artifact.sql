@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `imports_completed_artifact` ON `imports` (`household_id`,`fingerprint_method`,`fingerprint_value`) WHERE "imports"."processing_status" = 'completed';

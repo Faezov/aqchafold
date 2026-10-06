@@ -51,8 +51,12 @@ Category references are independently nullable. Imported Transactions require
 non-NULL raw descriptions, including legitimate empty source text.
 
 Import fingerprint method/value and parser ID/version are nullable pairs, each
-either complete or absent. Fingerprints are not unique: repeat attempts retain
-independent Import IDs. Processing status does not imply financial verification.
+either complete or absent. Repeat attempts retain independent Import IDs.
+The forward `0001_completed_artifact.sql` migration adds a partial unique index
+on `(household_id, fingerprint_method, fingerprint_value)` for completed Imports.
+Pending, processing, and failed attempts remain nonunique. Processing status does
+not imply financial verification; the repository's completion operation commits
+its supplied canonical batch atomically with the completed status.
 
 Foreign keys cover Member/Account/Import to Household, Import's optional confirmed
 Account, Transaction's Account and optional Merchant/Category, and ownership
@@ -62,8 +66,8 @@ have no Household field in the implemented domain; none is invented here.
 ## Repositories
 
 `HouseholdRepository`, `MemberRepository`, `AccountRepository`,
-`TransactionRepository`, and `MerchantRepository` take an already-open Drizzle
-handle.
+`TransactionRepository`, `MerchantRepository`, and `ImportRepository` take an
+already-open Drizzle handle.
 They do not open connections or apply migrations; tables must exist before use.
 Their synchronous APIs are:
 
@@ -79,6 +83,11 @@ new TransactionRepository(database).createMany(transactions); // void
 new TransactionRepository(database).getById(id); // Transaction | undefined
 new MerchantRepository(database).create(merchant); // void
 new MerchantRepository(database).getById(id); // Merchant | undefined
+new ImportRepository(database).create(attempt); // void; pending/processing/failed
+new ImportRepository(database).getById(id); // Import | undefined
+new ImportRepository(database).findCompleted(householdId, fingerprint); // Import | undefined
+new ImportRepository(database).complete(id, transactions); // void; atomic success
+new ImportRepository(database).fail(id); // void; pending/processing -> failed
 ```
 
 Creates validate through domain constructors; reads reconstruct canonical domain
@@ -127,8 +136,42 @@ Primary-key uniqueness enforces Transaction IDs and does not detect repeat impor
 
 The caller passes converted canonical Transactions to this repository; the
 database API accepts no ParsedStatement or bank-specific evidence. CommBank
-parsing/conversion remains independent of SQLite and Drizzle. No Import repository
-or Transaction-to-Import linkage is introduced.
+parsing/conversion remains independent of SQLite and Drizzle. No Transaction-to-Import
+linkage is introduced.
+
+Import creation revalidates the domain model and the Household/optional confirmed
+Account references. A confirmed Account must share the Import's Household.
+Source fields and parser provenance are preserved exactly. An attempt may lack a
+fingerprint, parser, or confirmed Account while detection/confirmation is unresolved.
+When a fingerprint is supplied, this v0.1 repository requires canonical `sha256`
+and 64 lowercase hexadecimal characters, as produced by importer-core's
+`fingerprintDocumentInput` over original `DocumentInput.bytes`.
+
+An exact-artifact duplicate is a completed Import with the same fingerprint and
+Household. Filenames, display labels, parser ID/version, and Transaction contents
+are irrelevant to that identity. `findCompleted` is only a preflight lookup;
+completion repeats the duplicate check inside `BEGIN IMMEDIATE`. It then inserts
+the full batch with the existing Transaction validation/reference checks and sets
+the Import status to completed before the same commit. Every supplied Transaction
+must have imported origin and use that Import's explicitly confirmed Account.
+Missing fingerprint or confirmed Account prevents completion. An empty canonical
+batch can complete; no Transaction contents are inferred or skipped.
+
+`DuplicateImportError` deterministically refuses an already completed artifact
+without persisting another batch or changing either Import. Other completion
+failures roll back both the batch and status change and remain distinct errors.
+Creation/completion errors omit SQL parameters and source contents. The partial
+unique index independently prevents two completed records for the same identity;
+the immediate transaction serializes writers, including callers whose preflight
+lookups both saw no duplicate. An existing Transaction primary-key conflict is an
+ordinary persistence failure, never exact-artifact duplicate detection.
+
+`create` cannot create completed Imports; successful repository completion must
+use `complete`. Only pending/processing attempts may complete or fail. Failed
+attempts remain historical and retries receive new Import IDs; they do not block
+another attempt. Completed attempts cannot be downgraded to release the duplicate
+guard. This repository guarantee does not redefine the generic Import domain's
+processing state as proof of financial verification.
 
 Signed integer minor units, posting date, optional transaction date, origin, and
 raw descriptions are preserved without inference or normalization. Optional
@@ -156,7 +199,6 @@ one SQL statement. Category assignment and merchant resolution remain separate.
 
 ### Remaining repository invariants
 
-- An Import's confirmed Account shares its Household.
 - Other entity writes and reads preserve domain validation, mapping SQL NULL to
   absent optional fields without changing raw evidence.
 - Future ownership updates are atomic; archival/closure preserves history.
@@ -182,8 +224,8 @@ migrations. A second generation with an unchanged schema should create nothing.
 The opener does not create tables, apply migrations, or seed application data.
 Other repositories and broader persistence coverage remain deferred.
 Receipt/Budget, observations, reconciliation,
-balances, duplicate matching, and Transaction-to-Import linkage are not implemented
-domain structures and have no tables or invented fields here.
+balances, semantic Transaction duplicate matching, and Transaction-to-Import
+linkage are not implemented domain structures and have no tables or invented fields here.
 
 ## Development persistence smoke check
 

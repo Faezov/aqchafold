@@ -1,4 +1,5 @@
 export type { StatementImporter } from "./importer";
+export { fingerprintDocumentInput } from "./fingerprint";
 export type {
   DocumentInput,
   StatementSourcePosition,

@@ -113,7 +113,7 @@ CommBank PDF
 - [X] Reconcile running balances
 - [X] Convert parsed rows to canonical Transactions
 - [X] Persist imported transactions
-- [ ] Detect duplicate imports
+- [X] Detect duplicate imports
 - [ ] Add regression tests
 
 Milestone:

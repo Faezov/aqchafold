@@ -5,3 +5,4 @@ export { MemberRepository } from "./member-repository";
 export { AccountRepository } from "./account-repository";
 export { TransactionRepository } from "./transaction-repository";
 export { MerchantRepository } from "./merchant-repository";
+export { ImportRepository, DuplicateImportError } from "./import-repository";

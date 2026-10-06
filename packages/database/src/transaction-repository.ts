@@ -14,7 +14,7 @@ export class TransactionRepository {
     const row = transactionToRow(transaction);
     this.database.transaction(
       (database) => {
-        this.insertRow(database, row);
+        insertRow(database, row);
       },
       { behavior: "immediate" },
     );
@@ -25,8 +25,7 @@ export class TransactionRepository {
     if (records.length === 0) return;
     this.database.transaction(
       (database) => {
-        for (const transaction of records)
-          this.insertRow(database, transactionToRow(transaction));
+        insertTransactionBatch(database, records);
       },
       { behavior: "immediate" },
     );
@@ -43,56 +42,62 @@ export class TransactionRepository {
         return undefined;
       }
       const transaction = transactionFromRow(row);
-      this.assertReferences(database, row);
+      assertReferences(database, row);
       return transaction;
     });
   }
+}
 
-  private insertRow(
-    database: Pick<
-      ReturnType<typeof openLedgeraseDatabase>,
-      "select" | "insert"
-    >,
-    row: typeof transactions.$inferSelect,
-  ): void {
-    this.assertReferences(database, row);
-    database.insert(transactions).values(row).run();
+/** @internal Reuse batch validation/insertion inside the caller's SQL transaction. */
+export function insertTransactionBatch(
+  database: Pick<ReturnType<typeof openLedgeraseDatabase>, "select" | "insert">,
+  records: readonly Transaction[],
+): void {
+  for (const transaction of records)
+    insertRow(database, transactionToRow(transaction));
+}
+
+function insertRow(
+  database: Pick<ReturnType<typeof openLedgeraseDatabase>, "select" | "insert">,
+  row: typeof transactions.$inferSelect,
+): void {
+  assertReferences(database, row);
+  database.insert(transactions).values(row).run();
+}
+
+function assertReferences(
+  database: Pick<ReturnType<typeof openLedgeraseDatabase>, "select">,
+  row: typeof transactions.$inferSelect,
+): void {
+  const account = database
+    .select({ primaryCurrency: accounts.primaryCurrency })
+    .from(accounts)
+    .where(eq(accounts.id, row.accountId))
+    .get();
+  if (account === undefined) {
+    throw new Error("Transaction must reference an existing Account.");
   }
-
-  private assertReferences(
-    database: Pick<ReturnType<typeof openLedgeraseDatabase>, "select">,
-    row: typeof transactions.$inferSelect,
-  ): void {
-    const account = database
-      .select({ primaryCurrency: accounts.primaryCurrency })
-      .from(accounts)
-      .where(eq(accounts.id, row.accountId))
+  if (row.currency !== account.primaryCurrency) {
+    throw new Error("Transaction currency must match its Account currency.");
+  }
+  if (row.merchantId !== null) {
+    const merchant = database
+      .select({ id: merchants.id })
+      .from(merchants)
+      .where(eq(merchants.id, row.merchantId))
       .get();
-    if (account === undefined) {
-      throw new Error("Transaction must reference an existing Account.");
+    if (merchant === undefined) {
+      throw new Error("Transaction must reference an existing Merchant.");
     }
-    if (row.currency !== account.primaryCurrency) {
-      throw new Error("Transaction currency must match its Account currency.");
-    }
-    if (row.merchantId !== null) {
-      const merchant = database
-        .select({ id: merchants.id })
-        .from(merchants)
-        .where(eq(merchants.id, row.merchantId))
-        .get();
-      if (merchant === undefined) {
-        throw new Error("Transaction must reference an existing Merchant.");
-      }
-    }
-    if (row.categoryId !== null) {
-      const category = database
-        .select({ id: categories.id })
-        .from(categories)
-        .where(eq(categories.id, row.categoryId))
-        .get();
-      if (category === undefined) {
-        throw new Error("Transaction must reference an existing Category.");
-      }
+  }
+  if (row.categoryId !== null) {
+    const category = database
+      .select({ id: categories.id })
+      .from(categories)
+      .where(eq(categories.id, row.categoryId))
+      .get();
+    if (category === undefined) {
+      throw new Error("Transaction must reference an existing Category.");
     }
   }
 }

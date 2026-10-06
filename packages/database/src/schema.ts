@@ -125,6 +125,9 @@ export const imports = sqliteTable(
     ),
   },
   (table) => [
+    uniqueIndex("imports_completed_artifact")
+      .on(table.householdId, table.fingerprintMethod, table.fingerprintValue)
+      .where(sql`${table.processingStatus} = 'completed'`),
     check(
       "imports_processing_status",
       sql`${table.processingStatus} in ('pending', 'processing', 'completed', 'failed')`,

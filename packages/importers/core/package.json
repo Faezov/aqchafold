@@ -5,6 +5,7 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "dependencies": {
-    "@aqchafold/domain": "workspace:*"
+    "@aqchafold/domain": "workspace:*",
+    "@noble/hashes": "2.4.0"
   }
 }
