@@ -139,7 +139,10 @@ function expectNoPersistence() {
 
 it("imports exact selected bytes as eleven canonical Transactions and a completed Import", async () => {
   const original = bytes.slice();
-  expect(await importStatement(options)).toBe("imported");
+  expect(await importStatement(options)).toEqual({
+    status: "imported",
+    transactionCount: 11,
+  });
   expect(options.readDocumentBytes).toHaveBeenCalledExactlyOnceWith(
     options.document.uri,
   );
@@ -171,14 +174,17 @@ it("imports exact selected bytes as eleven canonical Transactions and a complete
 });
 
 it("refuses an identical artifact with another filename and preserves a failed retry", async () => {
-  expect(await importStatement(options)).toBe("imported");
+  expect(await importStatement(options)).toEqual({
+    status: "imported",
+    transactionCount: 11,
+  });
   const before = transactions.list();
   expect(
     await importStatement({
       ...options,
       document: { ...options.document, name: "renamed-copy.pdf" },
     }),
-  ).toBe("already-imported");
+  ).toEqual({ status: "already-imported" });
   expect(transactions.list()).toEqual(before);
   expect(imports.getById("attempt-1")?.processingStatus).toBe("completed");
   expect(imports.getById("attempt-2")).toMatchObject({
@@ -194,7 +200,7 @@ it("declines unsupported bytes without creating an attempt", async () => {
       ...options,
       readDocumentBytes: async () => new Uint8Array([1, 2, 3]),
     }),
-  ).toBe("unsupported");
+  ).toEqual({ status: "unsupported" });
   expectNoPersistence();
 });
 
@@ -212,7 +218,7 @@ it("refuses an unreconciled supported statement before creating an attempt", asy
       ...options,
       readDocumentBytes: async () => changed,
     }),
-  ).toBe("failed");
+  ).toEqual({ status: "failed" });
   expectNoPersistence();
 });
 
@@ -222,9 +228,9 @@ it.each([
 ])(
   "refuses missing or changed Account confirmation: %j",
   async (confirmation) => {
-    expect(await importStatement({ ...options, ...confirmation })).toBe(
-      "failed",
-    );
+    expect(await importStatement({ ...options, ...confirmation })).toEqual({
+      status: "failed",
+    });
     expectNoPersistence();
   },
 );
@@ -241,7 +247,7 @@ it("honors abort after byte loading before touching repositories", async () => {
         return bytes;
       },
     }),
-  ).toBe("failed");
+  ).toEqual({ status: "failed" });
   expect(readAccount).not.toHaveBeenCalled();
   expectNoPersistence();
 });
@@ -249,9 +255,9 @@ it("honors abort after byte loading before touching repositories", async () => {
 it("does not read a document when already aborted", async () => {
   const controller = new AbortController();
   controller.abort();
-  expect(await importStatement({ ...options, signal: controller.signal })).toBe(
-    "failed",
-  );
+  expect(
+    await importStatement({ ...options, signal: controller.signal }),
+  ).toEqual({ status: "failed" });
   expect(options.readDocumentBytes).not.toHaveBeenCalled();
   expectNoPersistence();
 });
@@ -267,7 +273,7 @@ it("honors abort before writes even after the Account was read", async () => {
         return "aborted-attempt";
       },
     }),
-  ).toBe("failed");
+  ).toEqual({ status: "failed" });
   expectNoPersistence();
 });
 
@@ -280,7 +286,7 @@ it("rolls back completion failures, preserves existing Transactions, and marks t
     amount: new Money(17, "USD"),
   });
   transactions.create(existing);
-  expect(await importStatement(options)).toBe("failed");
+  expect(await importStatement(options)).toEqual({ status: "failed" });
   expect(transactions.list()).toEqual([existing]);
   expect(imports.getById("attempt-1")?.processingStatus).toBe("failed");
 });
@@ -293,6 +299,31 @@ it("does not classify a DuplicateImportError from byte loading as a completion d
         throw new DuplicateImportError();
       },
     }),
-  ).toBe("failed");
+  ).toEqual({ status: "failed" });
   expectNoPersistence();
+});
+
+it("returns only the failure discriminator when file loading throws sensitive text", async () => {
+  expect(
+    await importStatement({
+      ...options,
+      readDocumentBytes: async () => {
+        throw new Error(
+          "content://private-provider/statement.pdf: synthetic financial source contents",
+        );
+      },
+    }),
+  ).toEqual({ status: "failed" });
+  expectNoPersistence();
+});
+
+it("returns no database diagnostics or success facts when completion throws", async () => {
+  vi.spyOn(imports, "complete").mockImplementationOnce(() => {
+    throw new Error(
+      "SQL failure for household private-household, account private-account, raw source contents",
+    );
+  });
+  expect(await importStatement(options)).toEqual({ status: "failed" });
+  expect(transactions.list()).toEqual([]);
+  expect(imports.getById("attempt-1")?.processingStatus).toBe("failed");
 });

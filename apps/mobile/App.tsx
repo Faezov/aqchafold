@@ -8,18 +8,13 @@ import {
   TransactionRepository,
 } from "@aqchafold/database";
 import { randomUUID } from "expo-crypto";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { BackHandler, StyleSheet, Text, View } from "react-native";
 
-import {
-  importStatement,
-  type ImportStatementStatus,
-} from "./src/import/import-statement";
-import {
-  pickStatementDocument,
-  type SelectedDocument,
-} from "./src/platform/pick-statement-document";
+import { importStatement } from "./src/import/import-statement";
+import { pickStatementDocument } from "./src/platform/pick-statement-document";
 import { readDocumentBytes } from "./src/platform/read-document-bytes";
+import { importStateReducer } from "./src/presentation/import-state";
 import AccountsScreen from "./src/screens/AccountsScreen";
 import HomeScreen from "./src/screens/HomeScreen";
 import TransactionsScreen from "./src/screens/TransactionsScreen";
@@ -46,8 +41,11 @@ export default function App() {
   const [screen, setScreen] = useState<"home" | "accounts" | "transactions">(
     "home",
   );
-  const [selectedDocument, setSelectedDocument] =
-    useState<SelectedDocument | null>(null);
+  const [importState, dispatchImport] = useReducer(importStateReducer, {
+    status: "ready",
+    document: null,
+  });
+  const selectedDocument = importState.document;
   const [pickerStatus, setPickerStatus] = useState<
     "idle" | "picking" | "error"
   >("idle");
@@ -59,9 +57,6 @@ export default function App() {
     null,
   );
   const [currencyConfirmed, setCurrencyConfirmed] = useState(false);
-  const [importStatus, setImportStatus] = useState<
-    "ready" | "importing" | ImportStatementStatus
-  >("ready");
   const importInProgress = useRef<AbortController | null>(null);
 
   async function selectStatement() {
@@ -70,12 +65,11 @@ export default function App() {
     setPickerStatus("picking");
     try {
       const document = await pickStatementDocument();
+      dispatchImport({ type: "document-picked", document });
       if (document) {
-        setSelectedDocument(document);
         setAccountState({ status: "loading" });
         setSelectedAccountId(null);
         setCurrencyConfirmed(false);
-        setImportStatus("ready");
       }
       setPickerStatus("idle");
     } catch {
@@ -101,7 +95,7 @@ export default function App() {
     if (!account) return;
     const controller = new AbortController();
     importInProgress.current = controller;
-    setImportStatus("importing");
+    dispatchImport({ type: "started" });
     try {
       const result = await importStatement({
         document: selectedDocument,
@@ -114,9 +108,19 @@ export default function App() {
         createImportId: randomUUID,
         signal: controller.signal,
       });
-      if (!controller.signal.aborted) setImportStatus(result);
+      if (!controller.signal.aborted)
+        dispatchImport({
+          type: "finished",
+          result,
+          accountLabel: account.label,
+        });
     } catch {
-      if (!controller.signal.aborted) setImportStatus("failed");
+      if (!controller.signal.aborted)
+        dispatchImport({
+          type: "finished",
+          result: { status: "failed" },
+          accountLabel: account.label,
+        });
     } finally {
       if (importInProgress.current === controller)
         importInProgress.current = null;
@@ -133,7 +137,6 @@ export default function App() {
     if (importInProgress.current || pickerInProgress.current) return;
     setSelectedAccountId(id);
     setCurrencyConfirmed(false);
-    setImportStatus("ready");
   }
 
   useEffect(() => {
@@ -239,7 +242,6 @@ export default function App() {
           if (!importInProgress.current) setScreen("transactions");
         }}
         onPickStatement={() => void selectStatement()}
-        selectedDocument={selectedDocument}
         isPicking={pickerStatus === "picking"}
         pickerFailed={pickerStatus === "error"}
         accounts={
@@ -254,7 +256,7 @@ export default function App() {
             setCurrencyConfirmed((confirmed) => !confirmed);
         }}
         onImportStatement={() => void importSelectedStatement()}
-        importStatus={importStatus}
+        importState={importState}
       />
     );
   }

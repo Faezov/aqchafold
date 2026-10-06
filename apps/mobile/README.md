@@ -91,7 +91,19 @@ Import ID with source page/row positions through the existing converter callback
 they are unrelated to financial values or filename. The original filename is
 optional display metadata and does not affect fingerprint identity.
 
-Import states are plain text. Concurrent imports and selection changes are blocked
+The coordinator returns explicit imported/duplicate/unsupported/failed outcomes;
+success includes only the number of newly persisted Transactions. Home shows a
+plain result with that count, the Account label, and filename when available.
+Duplicate, unsupported-format, and failure results have distinct fixed messages
+without identifiers, financial source contents, or underlying diagnostics.
+
+The app root keeps ready/importing/finished state separate from Account availability.
+Finished results remain visible across Accounts/Transactions navigation during the
+session. Successful document selection clears the prior result; picker cancellation
+preserves it. A new import replaces it, while changing the selected Account alone
+does not rewrite the prior result. Results are not persisted across app restarts.
+
+Concurrent imports and selection changes are blocked
 while processing; navigation works when idle. Root cleanup cancels pending work
 before closing the retained database, and the coordinator checks cancellation
 before writing. Successful records are available on the existing Transactions

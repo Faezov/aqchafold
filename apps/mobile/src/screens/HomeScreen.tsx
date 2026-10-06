@@ -8,14 +8,12 @@ import {
   View,
 } from "react-native";
 
-import type { ImportStatementStatus } from "../import/import-statement";
-import type { SelectedDocument } from "../platform/pick-statement-document";
+import type { ImportState } from "../presentation/import-state";
 
 type HomeScreenProps = {
   onOpenAccounts: () => void;
   onOpenTransactions: () => void;
   onPickStatement: () => void;
-  selectedDocument: SelectedDocument | null;
   isPicking: boolean;
   pickerFailed: boolean;
   accounts: readonly Account[] | null;
@@ -25,23 +23,13 @@ type HomeScreenProps = {
   currencyConfirmed: boolean;
   onConfirmCurrency: () => void;
   onImportStatement: () => void;
-  importStatus: "ready" | "importing" | ImportStatementStatus;
-};
-
-const importMessages = {
-  ready: "Ready to import",
-  importing: "Importing…",
-  imported: "Imported",
-  "already-imported": "This statement has already been imported.",
-  unsupported: "This statement format is not supported.",
-  failed: "Import failed. Please try again.",
+  importState: ImportState;
 };
 
 export default function HomeScreen({
   onOpenAccounts,
   onOpenTransactions,
   onPickStatement,
-  selectedDocument,
   isPicking,
   pickerFailed,
   accounts,
@@ -51,9 +39,11 @@ export default function HomeScreen({
   currencyConfirmed,
   onConfirmCurrency,
   onImportStatement,
-  importStatus,
+  importState,
 }: HomeScreenProps) {
-  const isImporting = importStatus === "importing";
+  const selectedDocument = importState.document;
+  const isImporting = importState.status === "importing";
+  const result = importState.status === "finished" ? importState.result : null;
   const isBusy = isPicking || isImporting;
   const selectedAccount = accounts?.find(
     (account) => account.id === selectedAccountId,
@@ -184,9 +174,43 @@ export default function HomeScreen({
           >
             <Text style={styles.destinationTitle}>Import statement</Text>
           </Pressable>
-          {!accountsFailed && accounts && accounts.length > 0 && (
+          {!accountsFailed && accounts && accounts.length > 0 && !result && (
             <Text accessibilityLiveRegion="polite" style={styles.description}>
-              {importMessages[importStatus]}
+              {isImporting ? "Importing…" : "Ready to import"}
+            </Text>
+          )}
+        </View>
+      )}
+      {result && (
+        <View accessibilityLiveRegion="polite" style={styles.selection}>
+          <Text accessibilityRole="header" style={styles.destinationTitle}>
+            {result.status === "imported"
+              ? "Import complete"
+              : result.status === "already-imported"
+                ? "Already imported"
+                : result.status === "unsupported"
+                  ? "Unsupported statement"
+                  : "Import failed"}
+          </Text>
+          {result.status === "imported" ? (
+            <>
+              <Text style={styles.description}>
+                {result.transactionCount} transactions imported
+              </Text>
+              <Text style={styles.description}>
+                Account: {result.accountLabel}
+              </Text>
+              {result.filename && (
+                <Text style={styles.description}>File: {result.filename}</Text>
+              )}
+            </>
+          ) : (
+            <Text style={styles.description}>
+              {result.status === "already-imported"
+                ? "This exact statement was already imported. No transactions were added."
+                : result.status === "unsupported"
+                  ? "Ledgerase could not recognize this PDF as the supported CommBank Transaction Summary format."
+                  : "The statement could not be imported. Please try again."}
             </Text>
           )}
         </View>

@@ -23,8 +23,11 @@ export type ImportStatementOptions = {
   signal?: AbortSignal;
 };
 
-export type ImportStatementStatus =
-  "imported" | "already-imported" | "unsupported" | "failed";
+export type ImportStatementResult =
+  | { status: "imported"; transactionCount: number }
+  | { status: "already-imported" }
+  | { status: "unsupported" }
+  | { status: "failed" };
 
 /** Coordinates production validation and persistence without exposing diagnostics. */
 export async function importStatement({
@@ -37,20 +40,20 @@ export async function importStatement({
   readDocumentBytes,
   createImportId,
   signal,
-}: ImportStatementOptions): Promise<ImportStatementStatus> {
+}: ImportStatementOptions): Promise<ImportStatementResult> {
   try {
-    if (signal?.aborted) return "failed";
+    if (signal?.aborted) return { status: "failed" };
     const input = { bytes: await readDocumentBytes(document.uri) };
-    if (signal?.aborted) return "failed";
+    if (signal?.aborted) return { status: "failed" };
     const fingerprint = fingerprintDocumentInput(input);
     const score = await commbankBrowserSummaryImporter.detect(input);
-    if (signal?.aborted) return "failed";
-    if (score !== 1) return "unsupported";
+    if (signal?.aborted) return { status: "failed" };
+    if (score !== 1) return { status: "unsupported" };
     const parsed = await commbankBrowserSummaryImporter.parse(input);
-    if (signal?.aborted) return "failed";
+    if (signal?.aborted) return { status: "failed" };
     const account = accountRepository.getById(accountId);
     if (!account || account.primaryCurrency !== confirmedCurrency)
-      return "failed";
+      return { status: "failed" };
     const importId = createImportId();
     const transactions = convertCommBankBrowserSummaryToTransactions(parsed, {
       accountId: account.id,
@@ -59,7 +62,7 @@ export async function importStatement({
       createTransactionId: (row) =>
         `${importId}:transaction:${row.position.page ?? 0}:${row.position.row}`,
     });
-    if (signal?.aborted) return "failed";
+    if (signal?.aborted) return { status: "failed" };
     const attempt = new Import({
       id: importId,
       householdId: account.householdId,
@@ -80,11 +83,11 @@ export async function importStatement({
         // Preserve the original outcome even if the failed-attempt update fails.
       }
       return error instanceof DuplicateImportError
-        ? "already-imported"
-        : "failed";
+        ? { status: "already-imported" }
+        : { status: "failed" };
     }
-    return "imported";
+    return { status: "imported", transactionCount: transactions.length };
   } catch {
-    return "failed";
+    return { status: "failed" };
   }
 }
