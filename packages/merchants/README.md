@@ -1,7 +1,8 @@
 # packages/merchants
 
 Bank-, database-, and platform-independent merchant-resolution logic for Ledgerase.
-The package defines textual normalization and explicit exact alias lookup.
+The package defines textual normalization, explicit exact alias lookup, and
+merchant-resolution outcome states.
 
 `MerchantDescriptionNormalizer` is a pure, deterministic, synchronous callable:
 
@@ -84,9 +85,33 @@ Household-scoped durable mappings use the separate
 [MerchantRuleRepository](../database/README.md) in `packages/database`. The pure
 alias contract and resolver remain independent of SQLite.
 
+`MerchantResolution` is a readonly discriminated union describing one resolution
+outcome, not a property of Merchant identity. The same Merchant can participate in
+different states in different contexts:
+
+- `confirmed`: authoritative identity confirmation, with a nonblank `merchantId`.
+- `suggested`: an unconfirmed candidate with a nonblank `merchantId`, requiring
+  user or other authoritative confirmation.
+- `unknown`: no established candidate, with no `merchantId` in the returned object.
+
+`confirmedMerchant(merchantId)`, `suggestedMerchant(merchantId)`, and
+`unknownMerchant()` construct frozen, deterministic outcomes. The ID helpers
+validate nonblank strings and preserve opaque IDs exactly; invalid IDs throw
+`TypeError`. Calling `confirmedMerchant` expresses confirmation already established
+by the caller; these helpers do not discover identities or verify authority.
+The unknown union branch uses `merchantId?: never` to reject accidental string
+identities in structural assignments; the helper itself returns only `status`.
+
+This API represents state only. Priority between aliases, persistent rules, and
+other suggestion sources is deliberately not implemented. Neither aliases nor
+rules nor normalization output are assigned a state by these helpers. Persistence
+of confirmation and application to Transactions remain separate. Outcomes contain
+no descriptions, categories, or source metadata; constructing them performs no
+normalization, lookup, persistence, or assignment.
+
 Tests check the public contracts and production behavior using synthetic
 descriptions. Location/noise suffix removal, broader identity resolution, rule
-status/priority, category assignment, and UI remain separate later tasks.
+priority, category assignment, and UI remain separate later tasks.
 
 There are currently no production location/noise suffix-removal rules. The
 [tracked CommBank reference](../../fixtures/bank-statements/commbank/browser-summary-01.reference.json)

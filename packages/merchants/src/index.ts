@@ -5,3 +5,9 @@ export type {
   MerchantNormalizationResult,
 } from "./normalization";
 export { normalizePaymentProcessorPrefix } from "./payment-processor-prefix";
+export {
+  confirmedMerchant,
+  suggestedMerchant,
+  unknownMerchant,
+} from "./resolution";
+export type { MerchantResolution } from "./resolution";

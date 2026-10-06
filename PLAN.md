@@ -156,7 +156,7 @@ raw description
 - [X] Preserve original transaction description
 - [X] Implement merchant aliases
 - [X] Implement persistent merchant rules
-- [ ] Add confirmed / suggested / unknown status
+- [X] Add confirmed / suggested / unknown status
 - [ ] Ensure user-confirmed rules have highest priority
 - [ ] Aggregate unknown transactions by merchant
 - [ ] Rank review queue by financial importance
