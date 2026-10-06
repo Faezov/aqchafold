@@ -40,10 +40,12 @@ The actual ignored government-hosted public reference also detects as 1. Its
 duplicated labels and overlapping OCR are covered by a synthetic regression;
 committed tests and mobile smoke use only synthetic inputs.
 
-`parse()` currently extracts transaction posting dates and source descriptions.
+`parse()` currently extracts transaction posting dates, source descriptions, and
+raw Debit/Credit cells.
 Positioned Date-column text starts a row; continuation lines remain in its
-`rawText` until a nonempty Debit/Credit cell identifies a movement. Values in
-those cells are not interpreted.
+`rawText` until financial cells identify a movement's final baseline.
+Balance-column text can retain a movement with missing Debit/Credit evidence;
+its value is not interpreted or exposed.
 The demonstrated layout places them on the final description line. The explicit
 OPENING BALANCE entry and rows without movement evidence are excluded. Movements
 with missing dates remain separate unresolved rows. Pages and rows retain document
@@ -61,6 +63,23 @@ for description output only; `rawText` retains its existing behavior. Blank PDF
 text runs do not prove an established empty description, so no empty value is
 manufactured from missing evidence.
 
+`rawDebit` and `rawCredit` use that final baseline's positioned source runs. Column
+boundaries and right-aligned text edges distinguish the cells; the supported table
+layout establishes `""` for an empty counterpart. A single run retains its exact
+extracted notation. Identical overlapping copies collapse deterministically;
+multiple different runs remain joined as evidence with an ambiguity warning.
+Both-populated and both-empty cells also warn, without selecting a direction.
+Debit represents a later negative movement and Credit a later positive movement.
+
+Unsigned magnitudes require digits (optionally with correctly grouped commas) and
+exactly two decimal places. The internal helper removes separators only from a
+validation copy and converts integer digits directly to safe integer minor units;
+no floating-point dollar arithmetic is used. Invalid notation and unsafe magnitudes
+retain their raw evidence with warnings. `rawAmount` is absent for this column format.
+The current parser establishes no ISO currency evidence: `$`, bank identity, locale,
+and environment do not supply it. A document warning explains why `amount` remains
+absent; no default currency or Money instance is introduced.
+
 A row's year is established only when the first-page `DD Mon - DD Mon YYYY` Period
 and the explicit opening-balance year agree on a valid same-year range. Gregorian
 calendar checks reject impossible dates, including invalid leap days. Missing or
@@ -75,5 +94,6 @@ extraction can coalesce whitespace even with Unicode normalization disabled; the
 fields preserve extracted text rather than the PDF drawing instructions. Missing
 date evidence leaves `rawPostingDate` absent. The required metadata object currently
 contains only `rawText: ""`; a document warning makes the deferred extraction explicit.
-Amounts, balances, statement metadata, merchant/category logic, reconciliation,
-canonical conversion, persistence, and importer selection remain deferred.
+Money construction, balances, statement metadata, merchant/category logic,
+reconciliation, canonical conversion, persistence, and importer selection remain
+deferred.

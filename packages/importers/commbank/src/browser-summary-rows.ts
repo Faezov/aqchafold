@@ -125,6 +125,62 @@ function description(
   };
 }
 
+/** Internal two-decimal magnitude parser; converts integer digits, never decimal floats. */
+export function parseDecimalMagnitudeMinor(raw: string): number | undefined {
+  if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)\.\d{2}$/.test(raw)) return;
+  const minor = Number(raw.replace(/[,.]/g, ""));
+  return Number.isSafeInteger(minor) ? minor : undefined;
+}
+
+function amountCells(
+  items: readonly TextItem[],
+  debit: TextItem,
+  credit: TextItem,
+): Pick<ParsedStatementRow, "rawDebit" | "rawCredit" | "warnings"> {
+  const boundary = (debit.transform[4] + debit.width + credit.transform[4]) / 2;
+  const creditRight = credit.transform[4] + credit.width;
+  const creditItems = items.filter(
+    (item) =>
+      item.transform[4] >= boundary ||
+      Math.abs(item.transform[4] + item.width - creditRight) <= 2,
+  );
+  const warnings: string[] = [];
+  const sourceCell = (runs: readonly TextItem[], name: string): string => {
+    const unique = runs.filter(
+      (item, index) =>
+        !runs
+          .slice(0, index)
+          .some(
+            (other) =>
+              other.str === item.str &&
+              Math.abs(other.transform[4] - item.transform[4]) <= 2,
+          ),
+    );
+    const raw = unique.map((item) => item.str).join(" ");
+    if (unique.length < runs.length)
+      warnings.push(`Identical overlapping ${name} text runs were collapsed.`);
+    if (unique.length > 1)
+      warnings.push(
+        `The ${name} cell has multiple text runs; its magnitude is ambiguous.`,
+      );
+    else if (raw && parseDecimalMagnitudeMinor(raw) === undefined)
+      warnings.push(
+        `The ${name} cell is not a valid safe two-decimal magnitude.`,
+      );
+    return raw;
+  };
+  const rawDebit = sourceCell(
+    items.filter((item) => !creditItems.includes(item)),
+    "Debit",
+  );
+  const rawCredit = sourceCell(creditItems, "Credit");
+  if (Boolean(rawDebit) === Boolean(rawCredit))
+    warnings.push(
+      "Exactly one Debit or Credit cell must be populated for a movement.",
+    );
+  return { rawDebit, rawCredit, warnings };
+}
+
 function dateContext(
   items: readonly TextItem[],
   openingYears: readonly number[],
@@ -159,7 +215,7 @@ function dateContext(
   return { year, start, end };
 }
 
-/** Bank-specific source dates and descriptions; no financial values are interpreted. */
+/** Bank-specific source rows; Money remains unresolved until currency is established. */
 export function parseBrowserSummaryRows(
   pages: readonly (readonly TextItem[])[],
 ): Pick<ParsedStatement, "rows" | "warnings"> {
@@ -170,6 +226,7 @@ export function parseBrowserSummaryRows(
     dates: string[];
     rawText: string;
     description: Pick<ParsedStatementRow, "rawDescription" | "warnings">;
+    amounts: Pick<ParsedStatementRow, "rawDebit" | "rawCredit" | "warnings">;
   }[] = [];
   const sourcePages = pages.map((items) => {
     const seen = new Set<string>();
@@ -247,21 +304,41 @@ export function parseBrowserSummaryRows(
           item.transform[4] < movementLeft,
       );
       if (descriptionItems.length) descriptionLines.push(descriptionItems);
-      // The demonstrated layout places movement cells on the final description line.
-      // Presence locates a movement; neither Debit nor Credit values are interpreted.
-      if (
-        !line.items.some(
+      // The demonstrated layout places financial cells on the final description line.
+      const movementItems = line.items.filter(
+        (item) =>
+          item.transform[4] >= movementLeft &&
+          item.transform[4] < movementRight,
+      );
+      // Preserve real whitespace-only cell runs without adding PDF.js gap spacers
+      // (height 0), or changing the existing rawText/date/description observations.
+      movementItems.push(
+        ...pages[index].filter(
           (item) =>
+            item.str.length > 0 &&
+            !item.str.trim() &&
+            item.height > 0 &&
+            Math.abs(item.transform[5] - line.y) <= 2 &&
             item.transform[4] >= movementLeft &&
             item.transform[4] < movementRight,
-        )
-      )
-        continue;
+        ),
+      );
+      movementItems.sort((a, b) => a.transform[4] - b.transform[4]);
+      // Balance-column presence retains missing-amount rows without interpreting balances.
+      const hasBalanceCell =
+        (dates.length > 0 || descriptionLines.length > 0) &&
+        line.items.some(
+          (item) =>
+            item.transform[4] >= movementRight &&
+            item.transform[4] <= balance.transform[4] + balance.width + 2,
+        );
+      if (!movementItems.length && !hasBalanceCell) continue;
       records.push({
         page: index + 1,
         dates,
         rawText: text.join("\n"),
         description: description(descriptionLines),
+        amounts: amountCells(movementItems, debit, credit),
       });
       dates = [];
       text = [];
@@ -277,7 +354,10 @@ export function parseBrowserSummaryRows(
     const rawPostingDate = record.dates.length
       ? record.dates.join(" ")
       : undefined;
-    const rowWarnings: string[] = [...record.description.warnings];
+    const rowWarnings: string[] = [
+      ...record.description.warnings,
+      ...record.amounts.warnings,
+    ];
     let postingDate: string | undefined;
     if (rawPostingDate === undefined)
       rowWarnings.push(
@@ -306,6 +386,8 @@ export function parseBrowserSummaryRows(
     return {
       position: { page: record.page, row: index + 1 },
       rawText: record.rawText,
+      rawDebit: record.amounts.rawDebit,
+      rawCredit: record.amounts.rawCredit,
       ...(record.description.rawDescription === undefined
         ? {}
         : { rawDescription: record.description.rawDescription }),

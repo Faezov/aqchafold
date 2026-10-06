@@ -107,7 +107,7 @@ CommBank PDF
 - [X] Detect CommBank browser Transaction Summary
 - [X] Parse transaction dates
 - [X] Parse descriptions
-- [ ] Parse amounts
+- [X] Parse amounts
 - [ ] Parse balances
 - [ ] Parse statement metadata
 - [ ] Reconcile running balances

@@ -6,7 +6,10 @@ import { URL } from "node:url";
 import { deflateSync } from "node:zlib";
 import { getDocument, type TextItem } from "pdfjs-serverless";
 import { describe, expect, it, vi } from "vitest";
-import { parseBrowserSummaryRows } from "./browser-summary-rows";
+import {
+  parseBrowserSummaryRows,
+  parseDecimalMagnitudeMinor,
+} from "./browser-summary-rows";
 import { commbankBrowserSummaryImporter } from "./browser-summary";
 
 const fixture = new Uint8Array(
@@ -280,8 +283,6 @@ describe("CommBank browser Transaction Summary posting dates", () => {
         "rawTransactionDate",
         "transactionDate",
         "rawAmount",
-        "rawDebit",
-        "rawCredit",
         "rawBalance",
         "amount",
         "balance",
@@ -313,7 +314,7 @@ describe("CommBank browser Transaction Summary posting dates", () => {
     ]);
   });
 
-  it("preserves extracted date and description runs without trimming or collapsing whitespace", async () => {
+  it("preserves extracted date, description, and debit runs without trimming or collapsing whitespace", async () => {
     const task = getDocument({
       data: new Uint8Array(fixture),
       verbosity: 0,
@@ -333,6 +334,8 @@ describe("CommBank browser Transaction Summary posting dates", () => {
         (item) => item.str === "FIXTURE MARKET EXAMPLEVILLE",
       );
       expect(description).toBeDefined();
+      const debit = items.find((item) => item.str === "38.47");
+      expect(debit).toBeDefined();
       // PDF.js coalesces drawing whitespace before yielding runs. This tests the
       // importer boundary directly, preserving the run supplied by extraction.
       const source = items.map((item) =>
@@ -340,13 +343,33 @@ describe("CommBank browser Transaction Summary posting dates", () => {
           ? { ...item, str: " 02  Feb " }
           : item === description
             ? { ...item, str: " FIXTURE  MARKET EXAMPLEVILLE " }
-            : item,
+            : item === debit
+              ? { ...item, str: " 38.47 " }
+              : item,
       );
       const { rows } = parseBrowserSummaryRows([source]);
       expect(rows[0]!.rawPostingDate).toBe(" 02  Feb ");
       expect(rows[0]!.rawText).toContain(" 02  Feb ");
       expect(rows[0]!.postingDate).toBe("2036-02-02");
       expect(rows[0]!.rawDescription).toBe(" FIXTURE  MARKET EXAMPLEVILLE ");
+      expect(rows[0]!.rawDebit).toBe(" 38.47 ");
+      expect(rows[0]!.amount).toBeUndefined();
+      expect(rows[0]!.warnings.join(" ")).toMatch(/not a valid.*magnitude/i);
+      expect(debit!.height).toBeGreaterThan(0);
+      const blankSource = items.map((item) =>
+        item === debit ? { ...item, str: " " } : item,
+      );
+      const blankRows = parseBrowserSummaryRows([blankSource]).rows;
+      const withoutDebit = parseBrowserSummaryRows([
+        items.filter((item) => item !== debit),
+      ]).rows;
+      expect(blankRows[0]!.rawDebit).toBe(" ");
+      expect(blankRows[0]!.rawCredit).toBe("");
+      expect(blankRows[0]!.amount).toBeUndefined();
+      expect(blankRows[0]!.warnings.join(" ")).toMatch(
+        /not a valid.*magnitude/i,
+      );
+      expect(blankRows[0]!.rawText).toBe(withoutDebit[0]!.rawText);
     } finally {
       await task.destroy();
     }
@@ -556,6 +579,202 @@ describe("CommBank browser Transaction Summary descriptions", () => {
       expect(rows).toHaveLength(1);
       expect(rows[0]!.rawDescription).toBe("SYNTHETIC MOVEMENT 1");
       expect(rows[0]!.postingDate).toBe("2036-02-02");
+    }
+  });
+});
+
+describe("CommBank browser Transaction Summary Debit/Credit evidence", () => {
+  it("preserves all eleven fixture pairs and their debit/credit direction without assuming currency", async () => {
+    const statement = await parse(fixture);
+    expect(statement.rows).toHaveLength(11);
+    expect(
+      statement.rows.map(({ rawDebit, rawCredit }) => ({
+        rawDebit,
+        rawCredit,
+      })),
+    ).toEqual(
+      reference.sourceRows.map(({ rawDebit, rawCredit }) => ({
+        rawDebit,
+        rawCredit,
+      })),
+    );
+    expect(
+      statement.rows.filter(({ rawDebit }) => rawDebit !== ""),
+    ).toHaveLength(7);
+    expect(
+      statement.rows.filter(({ rawCredit }) => rawCredit !== ""),
+    ).toHaveLength(4);
+    expect(statement.rows[3]!.rawText).toContain(
+      "Direct Debit SYNTHETIC UTILITIES\n91007382",
+    );
+    expect(statement.rows[3]!.rawDebit).toBe("24.19");
+    expect(statement.metadata).toEqual({ rawText: "" });
+    expect(statement.openingBalance).toBeUndefined();
+    expect(statement.closingBalance).toBeUndefined();
+    for (const row of statement.rows) {
+      expect(row.rawAmount).toBeUndefined();
+      expect(row.amount).toBeUndefined();
+      expect(row.rawBalance).toBeUndefined();
+      expect(row.balance).toBeUndefined();
+      expect(row.sourceTransactionId).toBeUndefined();
+    }
+  });
+
+  it("associates a wide right-aligned credit by its column without changing repeated row order", async () => {
+    const runs = dateSummary(["02 Feb", "02 Feb"]);
+    const credit = runs.find(({ x, y }) => x === 330 && y === 440)!;
+    credit.text = "12,345,678.90";
+    // Helvetica 10: 63.94-point value ends at the Credit heading's 436.67 edge.
+    // Its start is left of the Debit/Credit region split, exercising right alignment.
+    credit.x = 372.73;
+    const { rows } = await parse(makePdf(runs));
+    expect(
+      rows.map(({ rawDebit, rawCredit }) => [rawDebit, rawCredit]),
+    ).toEqual([
+      ["1.00", ""],
+      ["", "12,345,678.90"],
+    ]);
+    expect(rows.map(({ position }) => position.row)).toEqual([1, 2]);
+    expect(rows.map(({ postingDate }) => postingDate)).toEqual([
+      "2036-02-02",
+      "2036-02-02",
+    ]);
+    expect(rows[1]!.rawDescription).toBe("SYNTHETIC MOVEMENT 2");
+  });
+
+  it("preserves both populated cells without choosing a movement amount", async () => {
+    const runs = dateSummary(["02 Feb"]);
+    runs.push({ text: "2.00", x: 410, y: 460 });
+    const { rows } = await parse(makePdf(runs));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.rawDebit).toBe("1.00");
+    expect(rows[0]!.rawCredit).toBe("2.00");
+    expect(rows[0]!.amount).toBeUndefined();
+    expect(rows[0]!.warnings.join(" ")).toMatch(/both|exactly one/i);
+  });
+
+  it.each(["absent", "empty"])(
+    "retains %s Debit/Credit cells when the Balance column establishes a source movement row",
+    async (variant) => {
+      const runs = dateSummary(["02 Feb"]).filter(
+        ({ x, y }) => !(x === 330 && y === 460),
+      );
+      runs.push({ text: "$100.00", x: 490, y: 460 });
+      if (variant === "empty")
+        runs.push({ text: "", x: 330, y: 460 }, { text: "", x: 410, y: 460 });
+      const { rows } = await parse(makePdf(runs));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.rawDebit).toBe("");
+      expect(rows[0]!.rawCredit).toBe("");
+      expect(rows[0]!.postingDate).toBe("2036-02-02");
+      expect(rows[0]!.rawDescription).toBe("SYNTHETIC MOVEMENT 1");
+      expect(rows[0]!.rawText).toContain("$100.00");
+      expect(rows[0]!.rawBalance).toBeUndefined();
+      expect(rows[0]!.amount).toBeUndefined();
+      expect(rows[0]!.warnings.join(" ")).toMatch(
+        /neither|missing|exactly one/i,
+      );
+    },
+  );
+
+  it.each([
+    "1,23.45",
+    "1.2",
+    "1.234",
+    "-1.00",
+    "+1.00",
+    "$1.00",
+    "1e2",
+    "12 3.45",
+  ])(
+    "retains malformed Debit notation %s without repairing it",
+    async (raw) => {
+      const runs = dateSummary(["02 Feb"]);
+      runs.find(({ x, y }) => x === 330 && y === 460)!.text = raw;
+      const { rows } = await parse(makePdf(runs));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.rawDebit).toBe(raw);
+      expect(rows[0]!.rawCredit).toBe("");
+      expect(rows[0]!.amount).toBeUndefined();
+      expect(rows[0]!.rawAmount).toBeUndefined();
+      expect(rows[0]!.warnings.join(" ")).toMatch(/not a valid.*magnitude/i);
+    },
+  );
+
+  it("preserves conflicting overlapping amount evidence deterministically", async () => {
+    const runs = dateSummary(["02 Feb"]);
+    const conflict = { text: "2.00", x: 330.5, y: 460.5 };
+    const evidence: (string | undefined)[] = [];
+    for (const source of [
+      [...runs, conflict],
+      [conflict, ...runs],
+    ]) {
+      const { rows } = await parse(makePdf(source));
+      expect(rows).toHaveLength(1);
+      evidence.push(rows[0]!.rawDebit);
+      expect(rows[0]!.rawDebit).toContain("1.00");
+      expect(rows[0]!.rawDebit).toContain("2.00");
+      expect(rows[0]!.rawCredit).toBe("");
+      expect(rows[0]!.amount).toBeUndefined();
+      expect(rows[0]!.rawText).toContain("1.00");
+      expect(rows[0]!.rawText).toContain("2.00");
+      expect(rows[0]!.warnings.join(" ")).toMatch(/ambiguous|overlap/i);
+    }
+    expect(evidence[0]).toBe(evidence[1]);
+  });
+
+  it("collapses shifted identical amount copies without changing raw row evidence", async () => {
+    const runs = dateSummary(["02 Feb"]);
+    const duplicate = { text: "1.00", x: 330.5, y: 460.5 };
+    for (const source of [
+      [...runs, duplicate],
+      [duplicate, ...runs],
+    ]) {
+      const { rows } = await parse(makePdf(source));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.rawDebit).toBe("1.00");
+      expect(rows[0]!.rawCredit).toBe("");
+      expect(rows[0]!.rawText.match(/1\.00/g)).toHaveLength(2);
+      expect(rows[0]!.postingDate).toBe("2036-02-02");
+    }
+  });
+
+  it("converts valid decimal magnitudes directly to exact safe integer hundredths", () => {
+    for (const [raw, expected] of [
+      ["0.00", 0],
+      ["0.01", 1],
+      ["38.47", 3847],
+      ["1,283.76", 128376],
+      ["12,345,678.90", 1234567890],
+      ["90071992547409.91", Number.MAX_SAFE_INTEGER],
+    ] as const) {
+      expect(parseDecimalMagnitudeMinor(raw)).toBe(expected);
+    }
+  });
+
+  it("rejects malformed notation and unsafe integer magnitudes without decimal rounding", () => {
+    for (const raw of [
+      "",
+      "1",
+      "1.2",
+      "1.234",
+      ".01",
+      "1,23.45",
+      "1234,567.89",
+      "1,2345.67",
+      "1,,234.56",
+      "-1.00",
+      "+1.00",
+      "$1.00",
+      "1e2",
+      " 1.00",
+      "1.00 ",
+      "1.00\n",
+      "1.00\r",
+      "1 234.56",
+      "90071992547409.92",
+    ]) {
+      expect(parseDecimalMagnitudeMinor(raw)).toBeUndefined();
     }
   });
 });

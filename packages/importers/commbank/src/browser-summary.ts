@@ -110,7 +110,8 @@ export const commbankBrowserSummaryImporter: StatementImporter = {
         metadata: { rawText: "" },
         rows: result.rows,
         warnings: [
-          "Only transaction posting dates and source descriptions have been parsed; statement metadata and other row fields remain unresolved.",
+          "Only posting dates, descriptions, and raw Debit/Credit values have been parsed; balances, statement metadata, and other row fields remain unresolved.",
+          "Currency has not been established; transaction Money amounts remain unresolved.",
           ...result.warnings,
         ],
       };
