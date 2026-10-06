@@ -18,6 +18,16 @@ all whitespace. The result is separate derived text, never a replacement for
 source evidence, a canonical Merchant identity, or a Category assignment.
 Equal normalized descriptions do not prove equal Merchants.
 
+For CommBank, source description evidence is assembled from unchanged extracted
+Transaction-column runs, with spaces between runs and newlines between lines;
+it is not a byte-for-byte representation of the PDF. Once established on a
+`ParsedStatementRow`, the string passes unchanged through canonical conversion,
+the frozen `Transaction`, SQLite `raw_description`, and repository reads.
+Imported descriptions are required strings, including legitimate `""` values.
+Manual absence remains `undefined`, represented only as SQL `NULL` in storage.
+Callers pass an established string to normalization and keep its result separate;
+the current app and repositories do not automatically invoke normalization.
+
 The output policy trims surrounding ECMAScript whitespace (`\s`) and collapses
 internal whitespace runs to one ASCII space. Case, accents, and punctuation in
 retained text are preserved; no case folding or Unicode normalization is implied.
@@ -48,3 +58,25 @@ text are preserved. For example, ` SQ *EXAMPLE SHOP Sydney NS AUS ` yields
 Tests check the public contract and production behavior using synthetic
 descriptions. Location/noise suffix removal, identity resolution, aliases,
 rules, category assignment, persistence, and UI remain separate later tasks.
+
+There are currently no production location/noise suffix-removal rules. The
+[tracked CommBank reference](../../fixtures/bank-statements/commbank/browser-summary-01.reference.json)
+contains 11 transaction descriptions. The suffix candidates are bare
+`EXAMPLEVILLE` in `FIXTURE MARKET EXAMPLEVILLE` and the numeric continuation in
+`Direct Debit SYNTHETIC UTILITIES\n91007382`. The fixture README describes an
+invented numeric reference, but neither candidate establishes syntax that reliably
+separates merchant identity text from discardable text for arbitrary descriptions.
+The importer preserves that continuation as description evidence.
+
+The architecture example `SQ *KAHII Sydney NS AUS` illustrates an intended result;
+it does not define an unambiguous suffix format. City names (including `Sydney`
+or `EXAMPLEVILLE`), state abbreviations, country names/codes, numeric tokens,
+and arbitrary terminal words are deliberately retained, whether at the end or
+in the middle. Such fragments may distinguish merchants, outlets, or services;
+`Sydney Tools` must stay intact. No fixture-specific hardcoded removals are added.
+
+Suffix normalization cannot yet be marked complete. It needs tracked evidence or
+a documented structured format distinguishing removable suffixes from identity
+text. Until then, processor-prefix normalization remains the only production
+step and owns whitespace normalization. There is no suffix function, duplicate
+whitespace implementation, or additional composition layer.

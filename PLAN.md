@@ -153,7 +153,7 @@ raw description
 - [X] Define merchant normalization interface
 - [X] Normalize payment processor prefixes
 - [ ] Normalize obvious location/noise suffixes
-- [ ] Preserve original transaction description
+- [X] Preserve original transaction description
 - [ ] Implement merchant aliases
 - [ ] Implement persistent merchant rules
 - [ ] Add confirmed / suggested / unknown status

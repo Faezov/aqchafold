@@ -356,11 +356,12 @@ describe("CommBank browser Transaction Summary posting dates", () => {
       expect(balance).toBeDefined();
       // PDF.js coalesces drawing whitespace before yielding runs. This tests the
       // importer boundary directly, preserving the run supplied by extraction.
+      const rawDescription = " \tPAYPAL *MiXeD  Café! 東京 e\u0301 \t ";
       const source = items.map((item) =>
         item === date
           ? { ...item, str: " 02  Feb " }
           : item === description
-            ? { ...item, str: " FIXTURE  MARKET EXAMPLEVILLE " }
+            ? { ...item, str: rawDescription }
             : item === debit
               ? { ...item, str: " 38.47 " }
               : item === balance
@@ -371,7 +372,7 @@ describe("CommBank browser Transaction Summary posting dates", () => {
       expect(rows[0]!.rawPostingDate).toBe(" 02  Feb ");
       expect(rows[0]!.rawText).toContain(" 02  Feb ");
       expect(rows[0]!.postingDate).toBe("2036-02-02");
-      expect(rows[0]!.rawDescription).toBe(" FIXTURE  MARKET EXAMPLEVILLE ");
+      expect(rows[0]!.rawDescription).toBe(rawDescription);
       expect(rows[0]!.rawDebit).toBe(" 38.47 ");
       expect(rows[0]!.rawBalance).toBe(" $6,368.88 ");
       expect(rows[0]!.amount).toBeUndefined();

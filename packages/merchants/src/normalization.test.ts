@@ -1,4 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+import reference from "../../../fixtures/bank-statements/commbank/browser-summary-01.reference.json";
 import { normalizePaymentProcessorPrefix } from "./index";
 import type {
   MerchantDescriptionNormalizer,
@@ -26,6 +27,51 @@ describe("merchant normalization contract", () => {
     expectTypeOf<
       MerchantNormalizationResult["normalizedDescription"]
     >().toEqualTypeOf<Parameters<MerchantDescriptionNormalizer>[0]>();
+  });
+});
+
+describe("suffix evidence remains unresolved", () => {
+  it("preserves every tracked fixture description apart from whitespace", () => {
+    const rawDescriptions = reference.sourceRows.map(
+      ({ rawDescription }) => rawDescription,
+    );
+    const results = rawDescriptions.map(normalizePaymentProcessorPrefix);
+
+    expect(
+      results.map(({ normalizedDescription }) => normalizedDescription),
+    ).toEqual([
+      "FIXTURE MARKET EXAMPLEVILLE",
+      "SYNTHETIC HOME SUPPLIES",
+      "Credit SYNTHETIC EMPLOYER",
+      "Direct Debit SYNTHETIC UTILITIES 91007382",
+      "FIXTURE REPAIR WORKSHOP",
+      "Refund SYNTHETIC HOME SUPPLIES",
+      "FIXTURE COFFEE STAND",
+      "Transfer SYNTHETIC SAVINGS",
+      "SYNTHETIC TRANSIT PASS",
+      "FIXTURE BOOK SHOP",
+      "Credit SYNTHETIC PROJECT PAY",
+    ]);
+    expect(rawDescriptions.map(normalizePaymentProcessorPrefix)).toEqual(
+      results,
+    );
+    expect(
+      reference.sourceRows.map(({ rawDescription }) => rawDescription),
+    ).toEqual(rawDescriptions);
+    expect(reference.sourceRows[3].rawDescription).toBe(
+      "Direct Debit SYNTHETIC UTILITIES\n91007382",
+    );
+  });
+
+  // Architecture example and user-supplied ambiguity; neither defines a suffix grammar.
+  it.each([
+    ["SQ *KAHII Sydney NS AUS", "KAHII Sydney NS AUS"],
+    ["Sydney Tools", "Sydney Tools"],
+    ["SQ *KAHII Sydney NS AUS Branch", "KAHII Sydney NS AUS Branch"],
+  ])("retains ambiguous location text in %j", (raw, expected) => {
+    expect(normalizePaymentProcessorPrefix(raw)).toEqual({
+      normalizedDescription: expected,
+    });
   });
 });
 

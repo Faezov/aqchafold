@@ -17,6 +17,7 @@ import {
   commbankBrowserSummaryImporter,
   convertCommBankBrowserSummaryToTransactions,
 } from "../../importers/commbank/src/index";
+import { normalizePaymentProcessorPrefix } from "../../merchants/src/index";
 import { AccountRepository } from "./account-repository";
 import { HouseholdRepository } from "./household-repository";
 import { MerchantRepository } from "./merchant-repository";
@@ -167,6 +168,74 @@ function expectRollback(
 }
 
 describe("TransactionRepository with real SQLite and the Expo Drizzle driver", () => {
+  it("preserves source descriptions through conversion, SQLite, reads and repeated normalization", () => {
+    // Keep the tracked multiline row; add only whitespace/Unicode and empty probes.
+    const rawDescription = " \tPAYPAL *MiXeD  Café! 東京 e\u0301\nBranch \t\n ";
+    const parsed = {
+      ...source,
+      rows: source.rows.map((row, index) =>
+        index < 2
+          ? { ...row, rawDescription: index === 0 ? rawDescription : "" }
+          : row,
+      ),
+    };
+    const parsedBefore = structuredClone(parsed);
+    const records = convertCommBankBrowserSummaryToTransactions(parsed, {
+      accountId: "confirmed-account",
+      currency: "USD",
+      currencyDecimalPlaces: 2,
+      createTransactionId: (row) => `source-evidence-${row.position.row}`,
+    });
+    const recordsBefore = structuredClone(records);
+    repository.createMany(records);
+    const listed = repository.list();
+
+    for (const [index, record] of records.entries()) {
+      const original = parsed.rows[index].rawDescription;
+      expect(record.rawDescription).toBe(original);
+      expect(
+        store.sqlite
+          .prepare("SELECT raw_description FROM transactions WHERE id = ?")
+          .get(record.id)?.raw_description,
+      ).toBe(original);
+      expect(repository.getById(record.id)?.rawDescription).toBe(original);
+      expect(listed.find(({ id }) => id === record.id)?.rawDescription).toBe(
+        original,
+      );
+    }
+
+    for (const [index, normalizedDescription] of [
+      [0, "MiXeD Café! 東京 e\u0301 Branch"],
+      [1, ""],
+      [3, "Direct Debit SYNTHETIC UTILITIES 91007382"],
+    ] as const) {
+      const restored = repository.getById(records[index].id)!;
+      const original = parsed.rows[index].rawDescription;
+      if (restored.rawDescription === undefined)
+        throw new Error("Imported source description must remain established.");
+      for (let repeat = 0; repeat < 3; repeat++) {
+        expect(
+          normalizePaymentProcessorPrefix(restored.rawDescription),
+        ).toEqual({
+          normalizedDescription,
+        });
+        expect(restored.rawDescription).toBe(original);
+      }
+      expect(repository.getById(restored.id)).toEqual(records[index]);
+    }
+    expect(parsed).toEqual(parsedBefore);
+    expect(records).toEqual(recordsBefore);
+    expect(repository.getById(baseline.id)?.rawDescription).toBeUndefined();
+    expect(
+      listed.find(({ id }) => id === baseline.id)?.rawDescription,
+    ).toBeUndefined();
+    expect(
+      store.sqlite
+        .prepare("SELECT raw_description FROM transactions WHERE id = ?")
+        .get(baseline.id)?.raw_description,
+    ).toBeNull();
+  });
+
   it("atomically roundtrips all eleven converted fixture movements without changing source data", () => {
     const sourceBefore = structuredClone(source);
     const convertedBefore = structuredClone(converted);
