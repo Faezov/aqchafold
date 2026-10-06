@@ -9,6 +9,29 @@ pnpm install
 pnpm --filter @aqchafold/mobile start
 ```
 
+To launch on a connected Android device or a running emulator:
+
+```sh
+pnpm --filter @aqchafold/mobile android
+```
+
+This runs `expo start --android` using the existing Expo Go workflow. Use an
+Expo Go version compatible with this app's Expo SDK 57. Alternatively, run
+`start` and scan its QR code with Expo Go on an Android phone on the same network.
+
+The plain Ledgerase shell opens the real local `ledgerase.db` and awaits the
+database package's generated migrations before displaying “Ledgerase is ready.”
+It closes the initialization connection afterward. Initialization failures show
+a fixed error message without logging database contents.
+
+Android bundle validation without a device:
+
+```sh
+pnpm --filter @aqchafold/mobile exec expo export --platform android --output-dir /tmp/ledgerase-android
+```
+
+Export verifies bundling and Hermes compilation, not Android runtime execution.
+
 Non-interactive checks:
 
 ```sh

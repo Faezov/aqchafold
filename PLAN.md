@@ -84,7 +84,6 @@ Core finance concepts exist independently of CommBank, SQLite, and React.
 - [X] Create merchant repository
 - [X] Test basic persistence
 - [X] Verify database works on Android
-- [ ] Verify database works on iOS
 
 Milestone:
 Ledgerase can persist canonical financial data locally.
@@ -125,8 +124,7 @@ A real CommBank statement can become correct local Ledgerase transactions.
 
 Keep this intentionally ugly/simple.
 
-- [ ] Launch Ledgerase on Android
-- [ ] Launch Ledgerase on iOS
+- [X] Launch Ledgerase on Android
 - [ ] Create Home screen
 - [ ] Create Accounts screen
 - [ ] Create Transactions screen
