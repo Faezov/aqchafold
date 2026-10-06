@@ -7,7 +7,10 @@ import { accountMembers, accounts, households, members } from "./schema";
 /** Creates and reads canonical Accounts with ordered Household ownership. */
 export class AccountRepository {
   constructor(
-    private readonly database: ReturnType<typeof openLedgeraseDatabase>,
+    private readonly database: Pick<
+      ReturnType<typeof openLedgeraseDatabase>,
+      "select" | "transaction"
+    >,
   ) {}
 
   create(account: Account): void {

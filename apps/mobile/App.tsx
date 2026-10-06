@@ -1,16 +1,25 @@
 import {
   AccountRepository,
+  createLocalAccount,
+  HouseholdRepository,
+  ImportRepository,
   migrateLedgeraseDatabase,
   openLedgeraseDatabase,
   TransactionRepository,
 } from "@aqchafold/database";
+import { randomUUID } from "expo-crypto";
 import { useEffect, useRef, useState } from "react";
 import { BackHandler, StyleSheet, Text, View } from "react-native";
 
 import {
+  importStatement,
+  type ImportStatementStatus,
+} from "./src/import/import-statement";
+import {
   pickStatementDocument,
   type SelectedDocument,
 } from "./src/platform/pick-statement-document";
+import { readDocumentBytes } from "./src/platform/read-document-bytes";
 import AccountsScreen from "./src/screens/AccountsScreen";
 import HomeScreen from "./src/screens/HomeScreen";
 import TransactionsScreen from "./src/screens/TransactionsScreen";
@@ -22,8 +31,15 @@ type AppState =
       status: "ready";
       database: ReturnType<typeof openLedgeraseDatabase>;
       accountRepository: AccountRepository;
+      householdRepository: HouseholdRepository;
+      importRepository: ImportRepository;
       transactionRepository: TransactionRepository;
     };
+
+type AccountReadState =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "ready"; accounts: ReturnType<AccountRepository["list"]> };
 
 export default function App() {
   const [state, setState] = useState<AppState>({ status: "loading" });
@@ -36,20 +52,88 @@ export default function App() {
     "idle" | "picking" | "error"
   >("idle");
   const pickerInProgress = useRef(false);
+  const [accountState, setAccountState] = useState<AccountReadState>({
+    status: "loading",
+  });
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(
+    null,
+  );
+  const [currencyConfirmed, setCurrencyConfirmed] = useState(false);
+  const [importStatus, setImportStatus] = useState<
+    "ready" | "importing" | ImportStatementStatus
+  >("ready");
+  const importInProgress = useRef<AbortController | null>(null);
 
   async function selectStatement() {
-    if (pickerInProgress.current) return;
+    if (pickerInProgress.current || importInProgress.current) return;
     pickerInProgress.current = true;
     setPickerStatus("picking");
     try {
       const document = await pickStatementDocument();
-      if (document) setSelectedDocument(document);
+      if (document) {
+        setSelectedDocument(document);
+        setAccountState({ status: "loading" });
+        setSelectedAccountId(null);
+        setCurrencyConfirmed(false);
+        setImportStatus("ready");
+      }
       setPickerStatus("idle");
     } catch {
       setPickerStatus("error");
     } finally {
       pickerInProgress.current = false;
     }
+  }
+
+  async function importSelectedStatement() {
+    if (
+      importInProgress.current ||
+      pickerInProgress.current ||
+      state.status !== "ready" ||
+      !selectedDocument ||
+      accountState.status !== "ready" ||
+      !currencyConfirmed
+    )
+      return;
+    const account = accountState.accounts.find(
+      (candidate) => candidate.id === selectedAccountId,
+    );
+    if (!account) return;
+    const controller = new AbortController();
+    importInProgress.current = controller;
+    setImportStatus("importing");
+    try {
+      const result = await importStatement({
+        document: selectedDocument,
+        accountId: account.id,
+        confirmedCurrency: account.primaryCurrency,
+        currencyDecimalPlaces: 2,
+        accountRepository: state.accountRepository,
+        importRepository: state.importRepository,
+        readDocumentBytes,
+        createImportId: randomUUID,
+        signal: controller.signal,
+      });
+      if (!controller.signal.aborted) setImportStatus(result);
+    } catch {
+      if (!controller.signal.aborted) setImportStatus("failed");
+    } finally {
+      if (importInProgress.current === controller)
+        importInProgress.current = null;
+    }
+  }
+
+  function returnHome() {
+    setAccountState({ status: "loading" });
+    setCurrencyConfirmed(false);
+    setScreen("home");
+  }
+
+  function selectAccount(id: string) {
+    if (importInProgress.current || pickerInProgress.current) return;
+    setSelectedAccountId(id);
+    setCurrencyConfirmed(false);
+    setImportStatus("ready");
   }
 
   useEffect(() => {
@@ -64,6 +148,8 @@ export default function App() {
           await migrateLedgeraseDatabase(database);
           if (active) {
             const accountRepository = new AccountRepository(database);
+            const householdRepository = new HouseholdRepository(database);
+            const importRepository = new ImportRepository(database);
             const transactionRepository = new TransactionRepository(database);
             retained = true;
             retainedDatabase = database;
@@ -71,6 +157,8 @@ export default function App() {
               status: "ready",
               database,
               accountRepository,
+              householdRepository,
+              importRepository,
               transactionRepository,
             });
           }
@@ -85,16 +173,35 @@ export default function App() {
     void initialize();
     return () => {
       active = false;
+      importInProgress.current?.abort();
       retainedDatabase?.$client.closeSync();
       retainedDatabase = undefined;
     };
   }, []);
 
   useEffect(() => {
+    if (state.status !== "ready" || screen !== "home" || !selectedDocument)
+      return;
+    const pendingRead = setTimeout(() => {
+      try {
+        setAccountState({
+          status: "ready",
+          accounts: state.accountRepository.list(),
+        });
+      } catch {
+        setAccountState({ status: "error" });
+      }
+    }, 0);
+    return () => clearTimeout(pendingRead);
+  }, [state, screen, selectedDocument]);
+
+  useEffect(() => {
     if (screen === "home") return;
     const subscription = BackHandler.addEventListener(
       "hardwareBackPress",
       () => {
+        setAccountState({ status: "loading" });
+        setCurrencyConfirmed(false);
         setScreen("home");
         return true;
       },
@@ -107,7 +214,11 @@ export default function App() {
       return (
         <AccountsScreen
           repository={state.accountRepository}
-          onBack={() => setScreen("home")}
+          householdRepository={state.householdRepository}
+          onCreateAccount={(account, newHousehold) =>
+            createLocalAccount(state.database, { account, newHousehold })
+          }
+          onBack={returnHome}
         />
       );
     }
@@ -115,18 +226,35 @@ export default function App() {
       return (
         <TransactionsScreen
           repository={state.transactionRepository}
-          onBack={() => setScreen("home")}
+          onBack={returnHome}
         />
       );
     }
     return (
       <HomeScreen
-        onOpenAccounts={() => setScreen("accounts")}
-        onOpenTransactions={() => setScreen("transactions")}
+        onOpenAccounts={() => {
+          if (!importInProgress.current) setScreen("accounts");
+        }}
+        onOpenTransactions={() => {
+          if (!importInProgress.current) setScreen("transactions");
+        }}
         onPickStatement={() => void selectStatement()}
         selectedDocument={selectedDocument}
         isPicking={pickerStatus === "picking"}
         pickerFailed={pickerStatus === "error"}
+        accounts={
+          accountState.status === "ready" ? accountState.accounts : null
+        }
+        accountsFailed={accountState.status === "error"}
+        selectedAccountId={selectedAccountId}
+        onSelectAccount={selectAccount}
+        currencyConfirmed={currencyConfirmed}
+        onConfirmCurrency={() => {
+          if (!importInProgress.current && !pickerInProgress.current)
+            setCurrencyConfirmed((confirmed) => !confirmed);
+        }}
+        onImportStatement={() => void importSelectedStatement()}
+        importStatus={importStatus}
       />
     );
   }

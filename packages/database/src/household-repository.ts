@@ -5,7 +5,10 @@ import { households } from "./schema";
 /** Creates and reads the single local v0.1 Household. */
 export class HouseholdRepository {
   constructor(
-    private readonly database: ReturnType<typeof openLedgeraseDatabase>,
+    private readonly database: Pick<
+      ReturnType<typeof openLedgeraseDatabase>,
+      "select" | "transaction"
+    >,
   ) {}
 
   create(household: Household): void {

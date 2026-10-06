@@ -1,3 +1,4 @@
+import type { Account } from "@aqchafold/domain";
 import {
   Pressable,
   ScrollView,
@@ -7,6 +8,7 @@ import {
   View,
 } from "react-native";
 
+import type { ImportStatementStatus } from "../import/import-statement";
 import type { SelectedDocument } from "../platform/pick-statement-document";
 
 type HomeScreenProps = {
@@ -16,6 +18,23 @@ type HomeScreenProps = {
   selectedDocument: SelectedDocument | null;
   isPicking: boolean;
   pickerFailed: boolean;
+  accounts: readonly Account[] | null;
+  accountsFailed: boolean;
+  selectedAccountId: string | null;
+  onSelectAccount: (id: string) => void;
+  currencyConfirmed: boolean;
+  onConfirmCurrency: () => void;
+  onImportStatement: () => void;
+  importStatus: "ready" | "importing" | ImportStatementStatus;
+};
+
+const importMessages = {
+  ready: "Ready to import",
+  importing: "Importing…",
+  imported: "Imported",
+  "already-imported": "This statement has already been imported.",
+  unsupported: "This statement format is not supported.",
+  failed: "Import failed. Please try again.",
 };
 
 export default function HomeScreen({
@@ -25,7 +44,22 @@ export default function HomeScreen({
   selectedDocument,
   isPicking,
   pickerFailed,
+  accounts,
+  accountsFailed,
+  selectedAccountId,
+  onSelectAccount,
+  currencyConfirmed,
+  onConfirmCurrency,
+  onImportStatement,
+  importStatus,
 }: HomeScreenProps) {
+  const isImporting = importStatus === "importing";
+  const isBusy = isPicking || isImporting;
+  const selectedAccount = accounts?.find(
+    (account) => account.id === selectedAccountId,
+  );
+  const importDisabled = isBusy || !selectedAccount || !currencyConfirmed;
+
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <Text accessibilityRole="header" style={styles.title}>
@@ -37,9 +71,11 @@ export default function HomeScreen({
 
       <Pressable
         onPress={onOpenAccounts}
+        disabled={isImporting}
         accessibilityRole="button"
         accessibilityLabel="Accounts"
-        style={[styles.destination, styles.available]}
+        accessibilityState={{ disabled: isImporting }}
+        style={[styles.destination, !isImporting && styles.available]}
       >
         <Text style={styles.destinationTitle}>Accounts</Text>
         <Text style={styles.description}>View saved accounts</Text>
@@ -47,9 +83,11 @@ export default function HomeScreen({
 
       <Pressable
         onPress={onOpenTransactions}
+        disabled={isImporting}
         accessibilityRole="button"
         accessibilityLabel="Transactions"
-        style={[styles.destination, styles.available]}
+        accessibilityState={{ disabled: isImporting }}
+        style={[styles.destination, !isImporting && styles.available]}
       >
         <Text style={styles.destinationTitle}>Transactions</Text>
         <Text style={styles.description}>View saved transactions</Text>
@@ -57,13 +95,13 @@ export default function HomeScreen({
 
       <Pressable
         onPress={onPickStatement}
-        disabled={isPicking}
+        disabled={isBusy}
         accessibilityRole="button"
-        accessibilityLabel="Import statement, choose a PDF"
-        accessibilityState={{ disabled: isPicking, busy: isPicking }}
-        style={[styles.destination, !isPicking && styles.available]}
+        accessibilityLabel="Choose statement PDF"
+        accessibilityState={{ disabled: isBusy, busy: isPicking }}
+        style={[styles.destination, !isBusy && styles.available]}
       >
-        <Text style={styles.destinationTitle}>Import statement</Text>
+        <Text style={styles.destinationTitle}>Choose statement PDF</Text>
         <Text style={styles.description}>
           {isPicking ? "Opening document picker…" : "Choose one PDF document"}
         </Text>
@@ -75,13 +113,82 @@ export default function HomeScreen({
         </Text>
       )}
       {selectedDocument && (
-        <View accessibilityLiveRegion="polite">
+        <View style={styles.selection}>
           <Text style={styles.description}>
             Selected: {selectedDocument.name || "PDF document"}
           </Text>
-          <Text style={styles.description}>
-            Ready to import. This document has not been imported yet.
-          </Text>
+          {accountsFailed ? (
+            <Text accessibilityRole="alert" style={styles.description}>
+              Accounts could not be loaded. Open Accounts and return Home to try
+              again.
+            </Text>
+          ) : accounts === null ? (
+            <Text style={styles.description}>Loading accounts…</Text>
+          ) : accounts.length === 0 ? (
+            <Text accessibilityLiveRegion="polite" style={styles.description}>
+              Create an account before importing a statement.
+            </Text>
+          ) : (
+            <View style={styles.selection}>
+              <Text style={styles.description}>Import into:</Text>
+              {accounts.map((account) => (
+                <Pressable
+                  key={account.id}
+                  onPress={() => onSelectAccount(account.id)}
+                  disabled={isBusy}
+                  accessibilityRole="radio"
+                  accessibilityLabel={`Select account ${account.label}, ${account.primaryCurrency}`}
+                  accessibilityState={{
+                    checked: account.id === selectedAccountId,
+                    disabled: isBusy,
+                  }}
+                  style={[styles.destination, !isBusy && styles.available]}
+                >
+                  <Text style={styles.destinationTitle}>{account.label}</Text>
+                  <Text style={styles.description}>
+                    Currency: {account.primaryCurrency}
+                    {account.id === selectedAccountId ? " · Selected" : ""}
+                  </Text>
+                </Pressable>
+              ))}
+              {selectedAccount && (
+                <Pressable
+                  onPress={onConfirmCurrency}
+                  disabled={isBusy}
+                  accessibilityRole="checkbox"
+                  accessibilityLabel={`Confirm statement currency ${selectedAccount.primaryCurrency} with two decimal places`}
+                  accessibilityState={{
+                    checked: currencyConfirmed,
+                    disabled: isBusy,
+                  }}
+                  style={[styles.destination, !isBusy && styles.available]}
+                >
+                  <Text style={styles.description}>
+                    I confirm this statement uses{" "}
+                    {selectedAccount.primaryCurrency} with two decimal places.
+                  </Text>
+                  <Text style={styles.description}>
+                    {currencyConfirmed ? "Confirmed" : "Tap to confirm"}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          )}
+          <Pressable
+            onPress={onImportStatement}
+            disabled={importDisabled}
+            accessibilityRole="button"
+            accessibilityLabel="Import statement"
+            accessibilityState={{ disabled: importDisabled, busy: isImporting }}
+            style={[styles.destination, !importDisabled && styles.available]}
+          >
+            <Text style={styles.destinationTitle}>Import statement</Text>
+          </Pressable>
+          {!accountsFailed && accounts && accounts.length > 0 && (
+            <Text accessibilityLiveRegion="polite" style={styles.description}>
+              {importMessages[importStatus]}
+            </Text>
+          )}
         </View>
       )}
     </ScrollView>
@@ -124,5 +231,8 @@ const styles = StyleSheet.create({
   available: {
     backgroundColor: "#fff",
     borderColor: "#888",
+  },
+  selection: {
+    gap: 16,
   },
 });

@@ -31,6 +31,20 @@ and sanitized error states. It shows label, type, status, primary currency, and
 ownership kind; no balances are inferred. The Back control and Android Back return
 Home.
 
+Create account opens a plain form within Accounts. An empty store requires an
+explicit Household label first; an existing Household is shown and reused.
+Account label, canonical type, three-uppercase-letter currency, and ownership
+must all be supplied. Ownership choices are household-level and unknown; status
+is created as active. Nothing is preselected or inferred from the phone or PDF.
+
+`createLocalAccount()` validates canonical objects before writing and uses one
+SQLite transaction, with repository savepoints, to create a new Household and
+first Account together. A failure rolls back both. Existing Household setup
+creates only the Account. Form UUIDs are retained across retries, repeated
+submissions are guarded, and errors show fixed messages without logging values.
+Accounts refreshes immediately after creation; returning Home reloads the real
+import selector while preserving the selected PDF and requiring confirmation.
+
 Transactions uses the same connection and reads `TransactionRepository.list()` once
 per entry. Rows show posting date, unchanged raw description (or an explicit
 absence), signed amount with currency, and Account ID. Ordering is posting date
@@ -41,20 +55,54 @@ The presentation-local formatter supports AUD's two-decimal display using intege
 digit strings, without floating-point monetary conversion. Other currencies show
 exact signed minor units because currency-scale metadata is not implemented.
 
-Home's Import statement control opens Android's system document picker using
+Home's Choose statement PDF control opens Android's system document picker using
 `expo-document-picker`, installed with
 `pnpm --filter @aqchafold/mobile exec expo install expo-document-picker --pnpm`.
 It requests one `application/pdf` document with cache copying disabled and no
 storage/media permission request. The mobile wrapper preserves the opaque URI
-and returns only URI, optional filename, MIME type, and size; it does not read
-document bytes, parse, import, or persist the document.
+and returns only URI, optional filename, MIME type, and size. Selection alone
+does not read document bytes, parse, import, or persist the document.
 
 The app root retains this selection in memory during the current session, including
 navigation to Accounts/Transactions and back. Another selection replaces it;
 cancellation keeps any previous selection and shows no error. Picker failures
 show a fixed message without logging document details. Repeated launches are
-blocked while picking. Home shows the filename and explicitly says the document
-has not been imported yet. Selection is lost on app restart.
+blocked while picking. Home shows only the filename, never the URI. Selection is
+lost on app restart.
+
+After selection, Home reads real Accounts and requires an explicit Account choice
+and confirmation of its currency and two-decimal scope before Import statement is
+enabled, even with one Account. `AccountRepository.getById()` revalidates the
+persisted Account and its Household before conversion. Household context comes
+only from that Account's `householdId`; source metadata never supplies identity
+or ISO currency.
+
+The mobile byte adapter reads `new File(uri).bytes()` using Expo FileSystem's
+content-URI support. The same exact `Uint8Array` supplies importer-core SHA-256
+fingerprinting and the production CommBank detection/parser. The production
+converter requires verified reconciliation and the confirmed Account context.
+Only after conversion does `ImportRepository.create()` record a processing
+attempt; `complete()` atomically persists all Transactions and completes it.
+Completion failures leave no partial batch and are marked failed where possible.
+Only `DuplicateImportError` produces the already-imported message.
+
+Each attempt receives a fresh Expo Crypto UUID. Transaction IDs combine that
+Import ID with source page/row positions through the existing converter callback;
+they are unrelated to financial values or filename. The original filename is
+optional display metadata and does not affect fingerprint identity.
+
+Import states are plain text. Concurrent imports and selection changes are blocked
+while processing; navigation works when idle. Root cleanup cancels pending work
+before closing the retained database, and the coordinator checks cancellation
+before writing. Successful records are available on the existing Transactions
+screen when entered.
+
+A clean installation can now create its Household and Account through Accounts.
+Until an Account exists, Home refuses import with “Create an account before
+importing a statement.” It never creates a default Account or seeds the database.
+The production mobile coordinator is tested with the tracked synthetic CommBank
+PDF and real SQLite for 11 Transactions and exact-artifact duplicate refusal;
+native end-to-end incorporation can now be verified in the separate import task.
 
 Android bundle validation without a device:
 
@@ -101,5 +149,6 @@ by replacing the synthetic title without changing PDF offsets. The check runs
 only with `__DEV__` and its smoke flag, and reports PDF text extraction plus
 detection scores: fixture 1, unrelated 0, malformed 0, followed by
 `[Ledgerase CommBank smoke] PASS (android)`. It adds no UI, persistence, native PDF
-library, or financial-content logging. Dependency imports for this check are
-development-only. Clear and reload the session when comparing dependency patches.
+library, or financial-content logging. The smoke check remains development-only;
+the production import action uses the same real importer package. Clear and reload
+the session when comparing dependency patches.

@@ -3,6 +3,7 @@ export { migrateLedgeraseDatabase } from "./migrate";
 export { HouseholdRepository } from "./household-repository";
 export { MemberRepository } from "./member-repository";
 export { AccountRepository } from "./account-repository";
+export { createLocalAccount } from "./local-account-setup";
 export { TransactionRepository } from "./transaction-repository";
 export { MerchantRepository } from "./merchant-repository";
 export { ImportRepository, DuplicateImportError } from "./import-repository";

@@ -1,5 +1,9 @@
-import type { AccountRepository } from "@aqchafold/database";
-import { useEffect, useState } from "react";
+import type {
+  AccountRepository,
+  HouseholdRepository,
+} from "@aqchafold/database";
+import type { Account, Household } from "@aqchafold/domain";
+import { useCallback, useEffect, useState } from "react";
 import {
   FlatList,
   Pressable,
@@ -9,15 +13,23 @@ import {
   View,
 } from "react-native";
 
+import AccountCreationForm from "./AccountCreationForm";
+
 type AccountsScreenProps = {
   repository: AccountRepository;
+  householdRepository: HouseholdRepository;
+  onCreateAccount: (account: Account, newHousehold?: Household) => void;
   onBack: () => void;
 };
 
 type ReadState =
   | { status: "loading" }
   | { status: "error" }
-  | { status: "ready"; accounts: ReturnType<AccountRepository["list"]> };
+  | {
+      status: "ready";
+      accounts: ReturnType<AccountRepository["list"]>;
+      household: Household | undefined;
+    };
 
 const typeLabels = {
   transaction: "Transaction",
@@ -36,20 +48,29 @@ const ownershipLabels = {
 
 export default function AccountsScreen({
   repository,
+  householdRepository,
+  onCreateAccount,
   onBack,
 }: AccountsScreenProps) {
   const [state, setState] = useState<ReadState>({ status: "loading" });
+  const [isCreating, setIsCreating] = useState(false);
+
+  const refresh = useCallback(() => {
+    try {
+      setState({
+        status: "ready",
+        accounts: repository.list(),
+        household: householdRepository.get(),
+      });
+    } catch {
+      setState({ status: "error" });
+    }
+  }, [repository, householdRepository]);
 
   useEffect(() => {
-    const pendingRead = setTimeout(() => {
-      try {
-        setState({ status: "ready", accounts: repository.list() });
-      } catch {
-        setState({ status: "error" });
-      }
-    }, 0);
+    const pendingRead = setTimeout(refresh, 0);
     return () => clearTimeout(pendingRead);
-  }, [repository]);
+  }, [refresh]);
 
   return (
     <View style={styles.screen}>
@@ -71,14 +92,34 @@ export default function AccountsScreen({
         <Text style={styles.text}>
           Accounts could not be loaded. Return Home and try again.
         </Text>
+      ) : isCreating ? (
+        <AccountCreationForm
+          household={state.household}
+          onCreate={onCreateAccount}
+          onCreated={() => {
+            setIsCreating(false);
+            refresh();
+          }}
+          onCancel={() => setIsCreating(false)}
+        />
       ) : (
         <FlatList
           data={state.accounts}
           keyExtractor={(account) => account.id}
           contentContainerStyle={styles.list}
+          ListHeaderComponent={
+            <Pressable
+              onPress={() => setIsCreating(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Create account"
+              style={styles.back}
+            >
+              <Text style={styles.text}>Create account</Text>
+            </Pressable>
+          }
           ListEmptyComponent={
             <Text style={styles.text}>
-              No accounts yet. Account creation is not available yet.
+              No accounts yet. Create an account to import statements.
             </Text>
           }
           renderItem={({ item: account }) => (

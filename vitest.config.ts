@@ -6,6 +6,7 @@ export default defineConfig({
       "packages/**/*.test.ts",
       "packages/**/*.spec.ts",
       "apps/mobile/src/presentation/**/*.test.ts",
+      "apps/mobile/src/import/**/*.test.ts",
     ],
     environment: "node",
     globals: false,
