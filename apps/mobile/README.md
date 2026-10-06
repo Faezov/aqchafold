@@ -40,7 +40,21 @@ and sanitized error states follow Accounts; both Back controls return Home.
 The presentation-local formatter supports AUD's two-decimal display using integer
 digit strings, without floating-point monetary conversion. Other currencies show
 exact signed minor units because currency-scale metadata is not implemented.
-Import statement remains disabled and marked “Not yet available.”
+
+Home's Import statement control opens Android's system document picker using
+`expo-document-picker`, installed with
+`pnpm --filter @aqchafold/mobile exec expo install expo-document-picker --pnpm`.
+It requests one `application/pdf` document with cache copying disabled and no
+storage/media permission request. The mobile wrapper preserves the opaque URI
+and returns only URI, optional filename, MIME type, and size; it does not read
+document bytes, parse, import, or persist the document.
+
+The app root retains this selection in memory during the current session, including
+navigation to Accounts/Transactions and back. Another selection replaces it;
+cancellation keeps any previous selection and shows no error. Picker failures
+show a fixed message without logging document details. Repeated launches are
+blocked while picking. Home shows the filename and explicitly says the document
+has not been imported yet. Selection is lost on app restart.
 
 Android bundle validation without a device:
 

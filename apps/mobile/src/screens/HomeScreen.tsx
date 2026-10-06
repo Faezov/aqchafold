@@ -4,16 +4,27 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  View,
 } from "react-native";
+
+import type { SelectedDocument } from "../platform/pick-statement-document";
 
 type HomeScreenProps = {
   onOpenAccounts: () => void;
   onOpenTransactions: () => void;
+  onPickStatement: () => void;
+  selectedDocument: SelectedDocument | null;
+  isPicking: boolean;
+  pickerFailed: boolean;
 };
 
 export default function HomeScreen({
   onOpenAccounts,
   onOpenTransactions,
+  onPickStatement,
+  selectedDocument,
+  isPicking,
+  pickerFailed,
 }: HomeScreenProps) {
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
@@ -45,15 +56,34 @@ export default function HomeScreen({
       </Pressable>
 
       <Pressable
-        disabled
+        onPress={onPickStatement}
+        disabled={isPicking}
         accessibilityRole="button"
-        accessibilityLabel="Import statement, not yet available"
-        accessibilityState={{ disabled: true }}
-        style={styles.destination}
+        accessibilityLabel="Import statement, choose a PDF"
+        accessibilityState={{ disabled: isPicking, busy: isPicking }}
+        style={[styles.destination, !isPicking && styles.available]}
       >
         <Text style={styles.destinationTitle}>Import statement</Text>
-        <Text style={styles.unavailable}>Not yet available</Text>
+        <Text style={styles.description}>
+          {isPicking ? "Opening document picker…" : "Choose one PDF document"}
+        </Text>
       </Pressable>
+
+      {pickerFailed && (
+        <Text accessibilityRole="alert" style={styles.description}>
+          The document could not be selected. Please try again.
+        </Text>
+      )}
+      {selectedDocument && (
+        <View accessibilityLiveRegion="polite">
+          <Text style={styles.description}>
+            Selected: {selectedDocument.name || "PDF document"}
+          </Text>
+          <Text style={styles.description}>
+            Ready to import. This document has not been imported yet.
+          </Text>
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -94,9 +124,5 @@ const styles = StyleSheet.create({
   available: {
     backgroundColor: "#fff",
     borderColor: "#888",
-  },
-  unavailable: {
-    fontSize: 14,
-    color: "#555",
   },
 });

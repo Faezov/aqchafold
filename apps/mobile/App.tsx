@@ -4,9 +4,13 @@ import {
   openLedgeraseDatabase,
   TransactionRepository,
 } from "@aqchafold/database";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BackHandler, StyleSheet, Text, View } from "react-native";
 
+import {
+  pickStatementDocument,
+  type SelectedDocument,
+} from "./src/platform/pick-statement-document";
 import AccountsScreen from "./src/screens/AccountsScreen";
 import HomeScreen from "./src/screens/HomeScreen";
 import TransactionsScreen from "./src/screens/TransactionsScreen";
@@ -26,6 +30,27 @@ export default function App() {
   const [screen, setScreen] = useState<"home" | "accounts" | "transactions">(
     "home",
   );
+  const [selectedDocument, setSelectedDocument] =
+    useState<SelectedDocument | null>(null);
+  const [pickerStatus, setPickerStatus] = useState<
+    "idle" | "picking" | "error"
+  >("idle");
+  const pickerInProgress = useRef(false);
+
+  async function selectStatement() {
+    if (pickerInProgress.current) return;
+    pickerInProgress.current = true;
+    setPickerStatus("picking");
+    try {
+      const document = await pickStatementDocument();
+      if (document) setSelectedDocument(document);
+      setPickerStatus("idle");
+    } catch {
+      setPickerStatus("error");
+    } finally {
+      pickerInProgress.current = false;
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -98,6 +123,10 @@ export default function App() {
       <HomeScreen
         onOpenAccounts={() => setScreen("accounts")}
         onOpenTransactions={() => setScreen("transactions")}
+        onPickStatement={() => void selectStatement()}
+        selectedDocument={selectedDocument}
+        isPicking={pickerStatus === "picking"}
+        pickerFailed={pickerStatus === "error"}
       />
     );
   }

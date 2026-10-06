@@ -129,7 +129,7 @@ Keep this intentionally ugly/simple.
 - [X] Create Home screen
 - [X] Create Accounts screen
 - [X] Create Transactions screen
-- [ ] Add document picker
+- [X] Add document picker
 - [ ] Import a CommBank statement from the phone
 - [ ] Show import result
 - [ ] Show reconciliation status

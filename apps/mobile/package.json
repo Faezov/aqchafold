@@ -12,6 +12,7 @@
   "dependencies": {
     "@aqchafold/database": "workspace:*",
     "expo": "~57.0.26",
+    "expo-document-picker": "~57.0.3",
     "react": "19.2.3",
     "react-native": "0.86.3"
   },
