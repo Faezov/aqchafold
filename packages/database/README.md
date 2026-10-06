@@ -78,6 +78,7 @@ new MemberRepository(database).create(member); // void
 new MemberRepository(database).getById(id); // Member | undefined
 new AccountRepository(database).create(account); // void
 new AccountRepository(database).getById(id); // Account | undefined
+new AccountRepository(database).list(); // readonly Account[]; label then ID order
 new TransactionRepository(database).create(transaction); // void
 new TransactionRepository(database).createMany(transactions); // void
 new TransactionRepository(database).getById(id); // Transaction | undefined
@@ -117,6 +118,11 @@ rows and references, and reconstruct through `Account`. Invalid cardinality,
 ordinals, duplicate references, missing references, or foreign-Household Members
 fail explicitly; no rows are dropped or ownership meanings repaired. Pure mapping
 tests cover these checks without exercising SQLite persistence.
+
+`AccountRepository.list()` returns every stored Account, including closed Accounts,
+ordered by label then ID. It reads a coherent snapshot and uses the same canonical
+ownership and reference validation as single-Account reads. An invalid record
+fails the read rather than returning a partial list or repairing its meaning.
 
 Transaction creation validates through `Transaction` and checks references before
 inserting in an immediate transaction. Reads use one transaction, reconstruct

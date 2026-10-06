@@ -103,4 +103,35 @@ export class AccountRepository {
       return accountFromRows(account, ownershipRows, ownershipMembers);
     });
   }
+
+  /** Lists all local Accounts, including closed Accounts, in label/ID order. */
+  list(): readonly Account[] {
+    return this.database.transaction((transaction) => {
+      const accountRows = transaction
+        .select()
+        .from(accounts)
+        .orderBy(accounts.label, accounts.id)
+        .all();
+      if (accountRows.length === 0) {
+        return [];
+      }
+      const householdRows = transaction.select().from(households).all();
+      const ownershipRows = transaction.select().from(accountMembers).all();
+      const memberRows = transaction.select().from(members).all();
+      return accountRows.map((account) => {
+        const household = householdRows.find(
+          (row) => row.id === account.householdId,
+        );
+        if (household === undefined) {
+          throw new Error("Account must reference an existing Household.");
+        }
+        new Household(household);
+        return accountFromRows(
+          account,
+          ownershipRows.filter((row) => row.accountId === account.id),
+          memberRows,
+        );
+      });
+    });
+  }
 }

@@ -6,7 +6,11 @@ import {
   Text,
 } from "react-native";
 
-export default function HomeScreen() {
+type HomeScreenProps = {
+  onOpenAccounts: () => void;
+};
+
+export default function HomeScreen({ onOpenAccounts }: HomeScreenProps) {
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <Text accessibilityRole="header" style={styles.title}>
@@ -17,14 +21,13 @@ export default function HomeScreen() {
       </Text>
 
       <Pressable
-        disabled
+        onPress={onOpenAccounts}
         accessibilityRole="button"
-        accessibilityLabel="Accounts, not yet available"
-        accessibilityState={{ disabled: true }}
-        style={styles.destination}
+        accessibilityLabel="Accounts"
+        style={[styles.destination, styles.available]}
       >
         <Text style={styles.destinationTitle}>Accounts</Text>
-        <Text style={styles.unavailable}>Not yet available</Text>
+        <Text style={styles.description}>View saved accounts</Text>
       </Pressable>
 
       <Pressable
@@ -84,6 +87,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "600",
     color: "#444",
+  },
+  available: {
+    backgroundColor: "#fff",
+    borderColor: "#888",
   },
   unavailable: {
     fontSize: 14,

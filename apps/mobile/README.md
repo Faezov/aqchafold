@@ -21,11 +21,15 @@ Expo Go version compatible with this app's Expo SDK 57. Alternatively, run
 
 The app root opens the real local `ledgerase.db` and awaits the database package's
 generated migrations before rendering the presentation-only Home screen.
-It closes the initialization connection afterward. Initialization failures show
-a fixed error message without logging database contents.
+It retains one connection for the app's lifetime and closes it on root cleanup.
+Failed or cancelled initialization closes its connection after migrations settle.
+Initialization failures show a fixed error message without logging database contents.
 
-Home shows the Ledgerase title, local-first copy, and disabled Accounts,
-Transactions, and Import statement controls marked “Not yet available.”
+Home opens Accounts through simple app-level state. Accounts reads real canonical
+records using `AccountRepository.list()` whenever entered, with loading, empty,
+and sanitized error states. It shows label, type, status, primary currency, and
+ownership kind; no balances are inferred. The Back control and Android Back return
+Home. Transactions and Import statement remain disabled and marked “Not yet available.”
 
 Android bundle validation without a device:
 
