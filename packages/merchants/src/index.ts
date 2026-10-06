@@ -12,3 +12,8 @@ export {
   unknownMerchant,
 } from "./resolution";
 export type { MerchantResolution } from "./resolution";
+export { aggregateUnknownMerchantObservations } from "./unknown-aggregation";
+export type {
+  UnknownMerchantGroup,
+  UnknownMerchantObservation,
+} from "./unknown-aggregation";

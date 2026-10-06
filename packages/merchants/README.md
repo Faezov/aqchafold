@@ -127,6 +127,33 @@ frozen and deterministic. The resolver imports no database code, applies nothing
 to Transactions, and does not create or overwrite rules. Actual user confirmation
 UI and automatic application to Transactions arrive later.
 
+`aggregateUnknownMerchantObservations(observations)` accepts readonly
+`UnknownMerchantObservation` records containing `transactionId` and
+`normalizedDescription`. Callers supply only observations whose resolution is
+`unknown`; confirmed and suggested outcomes do not belong here. The function
+accepts no Transactions and performs no normalization, alias/rule lookup, or
+resolution-priority decisions.
+
+Each `UnknownMerchantGroup` contains `normalizedDescription`, readonly
+`transactionIds`, and `transactionCount`. It is a review aggregation keyed by
+exact, case-sensitive description text, NOT a canonical Merchant. Equal text
+does not prove Merchant identity, and no Merchant ID or record is invented.
+Whitespace, case, Unicode, and punctuation are preserved exactly; no trimming,
+Unicode normalization, similarity matching, or fuzzy grouping occurs.
+
+Both input fields must be nonblank strings; invalid fields/observations throw
+`TypeError`. Empty candidate text must be deliberately omitted by the caller,
+never grouped under a placeholder. Every duplicate transaction ID throws `Error`,
+whether its descriptions agree or conflict, so a Transaction cannot count twice.
+An empty input returns an empty frozen array.
+
+Groups are sorted by description ascending, and IDs within each group are sorted
+ascending using ordinary JavaScript UTF-16 string ordering, without locale or
+numeric comparison. Ordering is independent of input order. The outer array,
+group objects, and ID arrays are frozen; caller arrays and records stay unchanged.
+No persistence or Transaction assignment happens here. Financial totals and
+ranking come later.
+
 Tests check the public contracts and production behavior using synthetic
 descriptions. Location/noise suffix removal, broader identity resolution, category
 assignment, and UI remain separate later tasks.
