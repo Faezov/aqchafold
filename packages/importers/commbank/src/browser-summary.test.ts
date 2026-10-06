@@ -29,7 +29,14 @@ const reference = JSON.parse(
     "utf8",
   ),
 ) as {
-  headerEvidence: { rawClosingBalance: string };
+  headerEvidence: {
+    rawBankName: string;
+    rawTitle: string;
+    rawAccountIdentifier: string;
+    rawStatementLabel: string;
+    rawPeriod: string;
+    rawClosingBalance: string;
+  };
   openingBalanceEvidence: {
     page: number;
     tableRow: number;
@@ -275,7 +282,9 @@ describe("CommBank browser Transaction Summary posting dates", () => {
         ({ rawText }) => !rawText.includes("OPENING BALANCE"),
       ),
     ).toBe(true);
-    expect(statement.metadata).toEqual({ rawText: "" });
+    expect(statement.metadata.periodStart).toBe("2036-02-01");
+    expect(statement.metadata.periodEnd).toBe("2036-02-28");
+    expect(statement.metadata.currency).toBeUndefined();
     expect(statement.warnings.length).toBeGreaterThan(0);
   });
 
@@ -620,7 +629,9 @@ describe("CommBank browser Transaction Summary Debit/Credit evidence", () => {
       "Direct Debit SYNTHETIC UTILITIES\n91007382",
     );
     expect(statement.rows[3]!.rawDebit).toBe("24.19");
-    expect(statement.metadata).toEqual({ rawText: "" });
+    expect(statement.metadata.periodStart).toBe("2036-02-01");
+    expect(statement.metadata.periodEnd).toBe("2036-02-28");
+    expect(statement.metadata.currency).toBeUndefined();
     expect(statement.openingBalance?.value).toBeUndefined();
     expect(statement.closingBalance?.value).toBeUndefined();
     for (const row of statement.rows) {
@@ -823,7 +834,9 @@ describe("CommBank browser Transaction Summary balance evidence", () => {
     }
     expect(statement.openingBalance?.value).toBeUndefined();
     expect(statement.closingBalance?.value).toBeUndefined();
-    expect(statement.metadata).toEqual({ rawText: "" });
+    expect(statement.metadata.periodStart).toBe("2036-02-01");
+    expect(statement.metadata.periodEnd).toBe("2036-02-28");
+    expect(statement.metadata.currency).toBeUndefined();
   });
 
   it.each(["absent", "empty"])(
@@ -1073,5 +1086,240 @@ describe("CommBank browser Transaction Summary balance evidence", () => {
     expect(statement.warnings.join(" ")).toMatch(
       /closing.*missing|no.*closing|no.*balance/i,
     );
+  });
+});
+
+describe("CommBank browser Transaction Summary metadata evidence", () => {
+  it("preserves demonstrated fixture header metadata without inferring currency or other fields", async () => {
+    const statement = await parse(fixture);
+    const source = reference.headerEvidence;
+    expect(statement.metadata).toEqual({
+      rawText: expect.any(String),
+      institution: source.rawBankName,
+      accountIdentifier: source.rawAccountIdentifier,
+      periodStart: "2036-02-01",
+      periodEnd: "2036-02-28",
+    });
+    for (const value of [
+      source.rawBankName,
+      source.rawTitle,
+      "Account Number",
+      source.rawAccountIdentifier,
+      source.rawStatementLabel,
+      "Period",
+      source.rawPeriod,
+      "Closing Balance",
+      source.rawClosingBalance,
+    ]) {
+      expect(statement.metadata.rawText).toContain(value);
+    }
+    expect(statement.metadata.rawText).not.toContain("OPENING BALANCE");
+    expect(statement.metadata.rawText).not.toContain(
+      reference.sourceRows[0].rawDescription,
+    );
+    expect(statement.rows).toHaveLength(11);
+    for (const row of statement.rows) {
+      expect(row.amount).toBeUndefined();
+      expect(row.balance).toBeUndefined();
+    }
+    expect(statement.openingBalance?.value).toBeUndefined();
+    expect(statement.closingBalance?.value).toBeUndefined();
+  });
+
+  it.each(["absent", "blank"])(
+    "leaves an %s Account Number value unresolved with its label retained",
+    async (variant) => {
+      const runs = dateSummary(["02 Feb"]);
+      if (variant === "blank") runs.push({ text: " ", x: 410, y: 640 });
+      const statement = await parse(makePdf(runs));
+      expect(statement.metadata.accountIdentifier).toBeUndefined();
+      expect(statement.metadata.rawText).toContain("Account Number");
+      expect(statement.warnings.join(" ")).toMatch(
+        /account.*missing|no.*account/i,
+      );
+      expect(statement.rows[0]!.postingDate).toBe("2036-02-02");
+    },
+  );
+
+  it("preserves adjacent disjoint Account Number runs as one source identifier", async () => {
+    const runs = dateSummary(["02 Feb"]);
+    runs.push(
+      { text: "000", x: 410, y: 640 },
+      { text: "000", x: 440, y: 640 },
+      { text: "00000000", x: 470, y: 640 },
+    );
+    const statement = await parse(makePdf(runs));
+    expect(statement.metadata.accountIdentifier).toBe(
+      reference.headerEvidence.rawAccountIdentifier,
+    );
+    expect(statement.metadata.rawText).toContain(
+      reference.headerEvidence.rawAccountIdentifier,
+    );
+  });
+
+  it("retains conflicting Account Number overlays without selecting an identifier", async () => {
+    const runs = dateSummary(["02 Feb"]);
+    runs.push(
+      { text: "000 000 00000000", x: 410, y: 640 },
+      { text: "111 111 11111111", x: 410.5, y: 640.5 },
+    );
+    const statement = await parse(makePdf(runs));
+    expect(statement.metadata.accountIdentifier).toBeUndefined();
+    expect(statement.metadata.rawText).toContain("000 000 00000000");
+    expect(statement.metadata.rawText).toContain("111 111 11111111");
+    expect(statement.warnings.join(" ")).toMatch(
+      /account.*ambiguous|ambiguous.*account|account.*conflict/i,
+    );
+  });
+
+  it("leaves distinct repeated Account Number fields unresolved", async () => {
+    const runs = dateSummary(["02 Feb"]);
+    runs.push(
+      { text: "000 000 00000000", x: 410, y: 640 },
+      { text: "Account Number", x: 300, y: 630 },
+      { text: "111 111 11111111", x: 410, y: 630 },
+    );
+    const statement = await parse(makePdf(runs));
+    expect(statement.metadata.accountIdentifier).toBeUndefined();
+    expect(statement.metadata.rawText).toContain("000 000 00000000");
+    expect(statement.metadata.rawText).toContain("111 111 11111111");
+    expect(statement.warnings.join(" ")).toMatch(
+      /account.*ambiguous|ambiguous.*account|account.*conflict/i,
+    );
+  });
+
+  it.each([
+    "",
+    "01 Jan - 31 Dec",
+    "31 Feb - 31 Dec 2036",
+    "01 Dec - 31 Jan 2036",
+    "01 Jan - 31 Dec 0000",
+  ])(
+    "leaves missing or malformed/cross-year Period evidence unresolved: %s",
+    async (period) => {
+      const statement = await parse(makePdf(dateSummary(["02 Feb"], period)));
+      expect(statement.metadata.periodStart).toBeUndefined();
+      expect(statement.metadata.periodEnd).toBeUndefined();
+      expect(statement.metadata.rawText).toContain("Period");
+      if (period) expect(statement.metadata.rawText).toContain(period);
+      expect(statement.warnings.join(" ")).toMatch(/period|date range/i);
+    },
+  );
+
+  it("keeps conflicting Period values as raw evidence without selecting boundaries", async () => {
+    const runs = dateSummary(["02 Feb"], "01 Jan - 31 Dec 2036");
+    runs.push({ text: "01 Feb - 28 Feb 2036", x: 365.5, y: 620.5 });
+    const statement = await parse(makePdf(runs));
+    expect(statement.metadata.periodStart).toBeUndefined();
+    expect(statement.metadata.periodEnd).toBeUndefined();
+    expect(statement.metadata.rawText).toContain("01 Jan - 31 Dec 2036");
+    expect(statement.metadata.rawText).toContain("01 Feb - 28 Feb 2036");
+    expect(statement.warnings.join(" ")).toMatch(
+      /period.*ambiguous|ambiguous.*period|period.*conflict/i,
+    );
+  });
+
+  it("requires the existing opening-year agreement before exposing period boundaries", async () => {
+    const statement = await parse(
+      makePdf(
+        dateSummary(["02 Feb"], "01 Jan - 31 Dec 2036", "2035 OPENING BALANCE"),
+      ),
+    );
+    expect(statement.metadata.periodStart).toBeUndefined();
+    expect(statement.metadata.periodEnd).toBeUndefined();
+    expect(statement.metadata.rawText).toContain("01 Jan - 31 Dec 2036");
+    expect(statement.warnings.join(" ")).toMatch(/period|year|date range/i);
+  });
+
+  it("uses the evidenced Period boundaries rather than the transaction date range", async () => {
+    const statement = await parse(
+      makePdf(dateSummary(["03 Feb", "04 Feb"], "01 Feb - 28 Feb 2036")),
+    );
+    expect(statement.metadata.periodStart).toBe("2036-02-01");
+    expect(statement.metadata.periodEnd).toBe("2036-02-28");
+    expect(statement.rows.map(({ postingDate }) => postingDate)).toEqual([
+      "2036-02-03",
+      "2036-02-04",
+    ]);
+  });
+
+  it("collapses shifted identical metadata overlays without changing existing row/opening date behavior", async () => {
+    const runs = dateSummary(["02 Feb"], "01 Feb - 28 Feb 2036");
+    runs.push({ text: "000 000 00000000", x: 410, y: 640 });
+    const duplicates = [
+      { text: "Commonwealth Bank of Australia", x: 40.5, y: 720.5 },
+      { text: "000 000 00000000", x: 410.5, y: 640.5 },
+      { text: "01 Feb - 28 Feb 2036", x: 365.5, y: 620.5 },
+    ];
+    for (const source of [
+      [...runs, ...duplicates],
+      [...duplicates, ...runs],
+    ]) {
+      const statement = await parse(makePdf(source));
+      expect(statement.metadata.institution).toBe(
+        reference.headerEvidence.rawBankName,
+      );
+      expect(statement.metadata.accountIdentifier).toBe(
+        reference.headerEvidence.rawAccountIdentifier,
+      );
+      expect(statement.metadata.periodStart).toBe("2036-02-01");
+      expect(statement.metadata.periodEnd).toBe("2036-02-28");
+      expect(statement.warnings.join(" ")).toMatch(
+        /identical|collapsed|overlapping/i,
+      );
+      // Existing row/opening context sees both Period runs. Metadata deduplication
+      // must remain isolated rather than changing those earlier parsing results.
+      expect(statement.rows[0]!.postingDate).toBeUndefined();
+      expect(statement.openingBalance?.date).toBeUndefined();
+      expect(statement.rows[0]!.rawPostingDate).toBe("02 Feb");
+      expect(statement.rows[0]!.rawDescription).toBe("SYNTHETIC MOVEMENT 1");
+      expect(statement.rows[0]!.rawDebit).toBe("1.00");
+      expect(statement.rows[0]!.rawCredit).toBe("");
+      expect(statement.rows[0]!.rawText).toBe(
+        "02 Feb SYNTHETIC MOVEMENT 1 1.00",
+      );
+      expect(statement.openingBalance?.rawValue).toBe("$100.00");
+      expect(statement.closingBalance?.rawValue).toBe("");
+    }
+  });
+
+  it("preserves Account Number whitespace and rejects control-character evidence without repair", async () => {
+    const task = getDocument({
+      data: new Uint8Array(fixture),
+      verbosity: 0,
+      disableFontFace: true,
+      useSystemFonts: false,
+    });
+    try {
+      const document = await task.promise;
+      const page = await document.getPage(1);
+      const content = await page.getTextContent({ disableNormalization: true });
+      const items = content.items.filter(
+        (item): item is TextItem => "str" in item,
+      );
+      const account = items.find(
+        (item) => item.str === reference.headerEvidence.rawAccountIdentifier,
+      );
+      expect(account).toBeDefined();
+      const raw = " 000  000 00000000 ";
+      const statement = parseBrowserSummaryRows([
+        items.map((item) => (item === account ? { ...item, str: raw } : item)),
+      ]);
+      expect(statement.metadata.accountIdentifier).toBe(raw);
+      expect(statement.metadata.rawText).toContain(raw);
+      const malformed = "000\u0000 000 00000000";
+      const invalid = parseBrowserSummaryRows([
+        items.map((item) =>
+          item === account ? { ...item, str: malformed } : item,
+        ),
+      ]);
+      expect(invalid.metadata.accountIdentifier).toBeUndefined();
+      expect(invalid.metadata.rawText).toContain(malformed);
+      expect(invalid.warnings.join(" ")).toMatch(
+        /account.*invalid|invalid.*account|account.*malformed|account.*control/i,
+      );
+    } finally {
+      await task.destroy();
+    }
   });
 });

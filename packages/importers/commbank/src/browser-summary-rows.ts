@@ -1,6 +1,7 @@
 import type {
   ParsedStatement,
   ParsedStatementBalance,
+  ParsedStatementMetadata,
   ParsedStatementRow,
 } from "@aqchafold/importers-core";
 import type { TextItem } from "pdfjs-serverless";
@@ -268,12 +269,137 @@ function dateContext(
   return { year, start, end };
 }
 
+function statementMetadata(
+  items: readonly TextItem[],
+  openingYears: readonly number[],
+): Pick<ParsedStatement, "metadata" | "warnings"> {
+  const warnings: string[] = [];
+  const table = tableColumns(items);
+  const header = items.filter(
+    (item) =>
+      table &&
+      item.transform[5] > table[0].transform[5] &&
+      item.str.length > 0 &&
+      (item.str.trim() || item.height > 0),
+  );
+  const labels = ["account number", "statement", "period", "closing balance"];
+  const bankName = "commonwealth bank of australia";
+  const rawText = lines(header)
+    .filter((line) =>
+      line.items.some((item) => {
+        const text = normalized(item.str);
+        return (
+          labels.includes(text) ||
+          text === bankName ||
+          text === "commonwealth bank" ||
+          text === "transaction summary" ||
+          /^\(page \d+ of \d+\)$/.test(text)
+        );
+      }),
+    )
+    .map((line) => line.items.map((item) => item.str).join(" "))
+    .join("\n");
+  // This view belongs to metadata only; row and balance source handling is unchanged.
+  const unique = header.filter(
+    (item, index) =>
+      !header
+        .slice(0, index)
+        .some(
+          (other) =>
+            other.str === item.str &&
+            Math.abs(other.transform[4] - item.transform[4]) <= 2 &&
+            Math.abs(other.transform[5] - item.transform[5]) <= 2,
+        ),
+  );
+  if (unique.length < header.length)
+    warnings.push(
+      "Identical overlapping header text runs were collapsed for metadata fields; raw header evidence is retained.",
+    );
+  const institutions = new Set(
+    unique
+      .filter((item) => normalized(item.str) === bankName)
+      .map((item) => item.str),
+  );
+  let institution: string | undefined;
+  if (institutions.size === 1) institution = [...institutions][0];
+  else
+    warnings.push(
+      "The full institution name is missing or ambiguous in the header.",
+    );
+
+  function field(name: string) {
+    const cells = unique
+      .filter((item) => normalized(item.str) === name.toLowerCase())
+      .map((label) => {
+        const runs = unique
+          .filter(
+            (item) =>
+              item.transform[4] > label.transform[4] + label.width &&
+              Math.abs(item.transform[5] - label.transform[5]) <= 2,
+          )
+          .sort((a, b) => a.transform[4] - b.transform[4]);
+        return {
+          text: runs.map((item) => item.str).join(" "),
+          overlapping: runs.some((item, index) =>
+            runs
+              .slice(0, index)
+              .some(
+                (other) =>
+                  other.transform[4] + other.width - item.transform[4] > 2,
+              ),
+          ),
+        };
+      });
+    if (!cells.length || cells.some((cell) => !cell.text.trim())) {
+      warnings.push(`The header ${name} value is missing.`);
+      return;
+    }
+    if (
+      cells.some((cell) => cell.overlapping) ||
+      new Set(cells.map((cell) => cell.text)).size !== 1
+    ) {
+      warnings.push(
+        `The header ${name} evidence is ambiguous; no value was selected.`,
+      );
+      return;
+    }
+    const raw = cells[0].text;
+    if (
+      [...raw].some(
+        (char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127,
+      )
+    ) {
+      warnings.push(
+        `The header ${name} source value contains malformed control text.`,
+      );
+      return;
+    }
+    return raw;
+  }
+
+  const accountIdentifier = field("Account Number");
+  const period = field("Period");
+  const context =
+    period === undefined ? undefined : dateContext(unique, openingYears);
+  if (period !== undefined && !context)
+    warnings.push(
+      "The header Period does not establish a valid same-year Gregorian range with the opening-balance year.",
+    );
+  const metadata: ParsedStatementMetadata = {
+    rawText,
+    ...(institution === undefined ? {} : { institution }),
+    ...(accountIdentifier === undefined ? {} : { accountIdentifier }),
+    ...(context ? { periodStart: context.start, periodEnd: context.end } : {}),
+  };
+  return { metadata, warnings };
+}
+
 /** Bank-specific source rows; Money remains unresolved until currency is established. */
 export function parseBrowserSummaryRows(
   pages: readonly (readonly TextItem[])[],
 ): Pick<
   ParsedStatement,
-  "rows" | "warnings" | "openingBalance" | "closingBalance"
+  "metadata" | "rows" | "warnings" | "openingBalance" | "closingBalance"
 > {
   const warnings: string[] = [];
   const openingYears: number[] = [];
@@ -582,9 +708,11 @@ export function parseBrowserSummaryRows(
       warnings: rowWarnings,
     };
   });
+  const metadata = statementMetadata(pages[0] ?? [], openingYears);
   return {
+    metadata: metadata.metadata,
     rows,
-    warnings,
+    warnings: [...warnings, ...metadata.warnings],
     ...(openingBalance ? { openingBalance } : {}),
     ...(closingBalance ? { closingBalance } : {}),
   };

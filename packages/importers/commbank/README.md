@@ -41,7 +41,8 @@ duplicated labels and overlapping OCR are covered by a synthetic regression;
 committed tests and mobile smoke use only synthetic inputs.
 
 `parse()` currently extracts transaction posting dates, source descriptions,
-raw Debit/Credit and running Balance cells, and explicit opening/closing evidence.
+raw Debit/Credit and running Balance cells, explicit opening/closing evidence,
+and demonstrated header metadata.
 Positioned Date-column text starts a row; continuation lines remain in its
 `rawText` until financial cells identify a movement's final baseline.
 Balance-column text can retain a movement with missing Debit/Credit evidence;
@@ -117,7 +118,26 @@ wrapped descriptions and uninterpreted financial text for later steps. PDF.js te
 extraction can coalesce whitespace even with Unicode normalization disabled; these
 fields preserve extracted text rather than the PDF drawing instructions. Missing
 date evidence leaves `rawPostingDate` absent. The required metadata object currently
-contains only `rawText: ""`; a document warning makes the deferred extraction explicit.
-Money construction, general statement metadata, merchant/category logic,
+retains the full institution name, source Account Number, and validated Period
+boundaries when established. Header values are associated with their labels by
+the same baseline and their position to the right. Adjacent source runs are joined
+with spaces; each run's characters remain unchanged. Missing, blank, conflicting,
+overlapping, or control-character account evidence leaves `accountIdentifier`
+absent with a document warning. No account-number length, checksum, or masking
+alphabet is inferred from the synthetic identifier.
+
+Metadata `rawText` reconstructs relevant first-page header lines above the table:
+bank identity, title/page counter, Account Number, Statement, Period, and Closing
+Balance. It retains original extracted runs, including unresolved/conflicting
+values. Identical overlapping header copies collapse only for metadata fields,
+with a warning; this does not alter row or balance source processing. The existing
+Gregorian, same-year range, and opening-year checks interpret Period from this
+metadata view. Missing, malformed, conflicting, or cross-year Period evidence
+leaves both boundaries absent; transaction dates never supply period boundaries.
+
+`currency`, `accountLabel`, `sourceKind`, and `sourceFormat` remain absent. The
+Statement label does not establish a value, and no structured customer identity
+is introduced. Dollar notation establishes no ISO currency, so all amount/balance
+Money fields remain unresolved. Money construction, merchant/category logic,
 reconciliation, canonical conversion, persistence, and importer selection remain
 deferred.

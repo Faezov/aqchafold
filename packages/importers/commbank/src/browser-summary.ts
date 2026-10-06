@@ -107,7 +107,7 @@ export const commbankBrowserSummaryImporter: StatementImporter = {
           id: commbankBrowserSummaryImporter.id,
           version: commbankBrowserSummaryImporter.version,
         },
-        metadata: { rawText: "" },
+        metadata: result.metadata,
         ...(result.openingBalance
           ? { openingBalance: result.openingBalance }
           : {}),
@@ -116,7 +116,7 @@ export const commbankBrowserSummaryImporter: StatementImporter = {
           : {}),
         rows: result.rows,
         warnings: [
-          "Only source rows and explicit balance evidence have been parsed; general statement metadata and other row fields remain unresolved.",
+          "Reconciliation and canonical Transaction conversion have not been performed.",
           "Currency has not been established; transaction amounts and balance Money values remain unresolved.",
           ...result.warnings,
         ],
