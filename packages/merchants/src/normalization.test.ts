@@ -1,14 +1,9 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { Money, Transaction } from "../../domain/src/index";
+import { normalizePaymentProcessorPrefix } from "./index";
 import type {
   MerchantDescriptionNormalizer,
   MerchantNormalizationResult,
 } from "./index";
-
-// Test-only example of the text policy, not a production normalizer.
-const exampleNormalizer: MerchantDescriptionNormalizer = (rawDescription) => ({
-  normalizedDescription: rawDescription.replace(/\s+/g, " ").trim(),
-});
 
 describe("merchant normalization contract", () => {
   it("accepts one required string and returns a synchronous text-only result", () => {
@@ -22,6 +17,9 @@ describe("merchant normalization contract", () => {
     expectTypeOf<Promise<MerchantNormalizationResult>>().not.toExtend<
       ReturnType<MerchantDescriptionNormalizer>
     >();
+    expectTypeOf(
+      normalizePaymentProcessorPrefix,
+    ).toEqualTypeOf<MerchantDescriptionNormalizer>();
   });
 
   it("allows feeding a derived candidate into a later textual step", () => {
@@ -31,46 +29,84 @@ describe("merchant normalization contract", () => {
   });
 });
 
-describe("normalization contract examples (test implementation only)", () => {
+describe("normalizePaymentProcessorPrefix", () => {
   it.each([
+    [" SQ *EXAMPLE SHOP ", "EXAMPLE SHOP"],
+    ["SQ * EXAMPLE SHOP", "EXAMPLE SHOP"],
+    ["PAYPAL *MiXeD Café", "MiXeD Café"],
+    ["PAYPAL * 東京 STORE", "東京 STORE"],
+    ["sq *MiXeD Café!", "MiXeD Café!"],
+    ["pAyPaL * O'Example & Co. #42", "O'Example & Co. #42"],
+    ["\u00a0sQ\t*\nMiXeD Café! 東京 NS AUS\u2003", "MiXeD Café! 東京 NS AUS"],
+    [" PAYPAL\t \t*\u00a0MiXeD\nCafé ", "MiXeD Café"],
     ["", ""],
     [" \t\r\n\u00a0 ", ""],
+    ["SQ *", ""],
+    [" \tSQ\t* \n ", ""],
+    ["PAYPAL *", ""],
+    [" paypal * \t ", ""],
     ["  Example Shop  ", "Example Shop"],
+    ["  Ordinary   Shop  ", "Ordinary Shop"],
     ["Example\t\tShop\r\nBranch", "Example Shop Branch"],
     ["\u00a0Example\u00a0\u2003Shop\u00a0", "Example Shop"],
     ["MiXeD Café * 東京", "MiXeD Café * 東京"],
-    [" SQ *EXAMPLE SHOP Sydney NS AUS ", "SQ *EXAMPLE SHOP Sydney NS AUS"],
+    [" SQ *EXAMPLE SHOP Sydney NS AUS ", "EXAMPLE SHOP Sydney NS AUS"],
+    ["SQ *PAYPAL *MiXeD Café", "PAYPAL *MiXeD Café"],
+    ["PAYPAL * SQ *Shop", "SQ *Shop"],
+    ["SQ *SQ *Shop", "SQ *Shop"],
+    ["SQ **SHOP", "*SHOP"],
   ])(
-    "produces %j -> %j synchronously and deterministically",
+    "normalizes %j -> %j synchronously and deterministically",
     (raw, expected) => {
-      const result = exampleNormalizer(raw);
+      const result = normalizePaymentProcessorPrefix(raw);
       expect(result).toEqual({ normalizedDescription: expected });
-      expect(exampleNormalizer(raw)).toEqual(result);
+      expect(normalizePaymentProcessorPrefix(raw)).toEqual(result);
     },
   );
 
-  it("keeps derived text separate from all Transaction facts and assignments", () => {
-    const rawDescription = "  MiXeD Café\tBranch\n ";
-    const transaction = new Transaction({
-      id: "synthetic-transaction",
-      accountId: "synthetic-account",
-      postingDate: "2026-10-07",
-      amount: new Money(-1234, "AUD"),
-      origin: "imported",
+  it.each([
+    "SQ*SHOP",
+    "PAYPAL*SHOP",
+    "PP*SHOP",
+    "SQUARE *SHOP",
+    "STRIPE *SHOP",
+    "SQUID *SHOP",
+    "PAYPALISH *SHOP",
+    "ſQ *SHOP",
+    "ＰＡＹＰＡＬ *SHOP",
+    "SQ SHOP",
+    "PAYPAL SHOP",
+    "SQ",
+    "PAYPAL",
+    "SQ -SHOP",
+    "PAYPAL :SHOP",
+    "SQ ＊SHOP",
+    "*SQ *SHOP",
+    "Shop SQ *Branch",
+    "Shop PAYPAL *Branch",
+    "Shop SQ *",
+    "Shop PAYPAL *",
+    "ShopSQ *Branch",
+    "ShopPAYPAL *Branch",
+  ])("preserves unsupported or non-leading syntax %j", (raw) => {
+    expect(normalizePaymentProcessorPrefix(raw)).toEqual({
+      normalizedDescription: raw,
+    });
+  });
+
+  it("keeps the source record unchanged and returns only derived text", () => {
+    const rawDescription = "  PAYPAL *MiXeD Café\tBranch\n ";
+    const source = Object.freeze({
       rawDescription,
       merchantId: "existing-merchant",
       categoryId: "existing-category",
     });
-    const before = { ...transaction };
-    if (transaction.rawDescription === undefined) {
-      throw new Error("Test Transaction must retain its source description.");
-    }
+    const before = { ...source };
 
-    const result = exampleNormalizer(transaction.rawDescription);
+    const result = normalizePaymentProcessorPrefix(source.rawDescription);
 
     expect(result).toEqual({ normalizedDescription: "MiXeD Café Branch" });
-    expect(transaction.rawDescription).toBe(rawDescription);
-    expect(transaction).toEqual(before);
-    expect(Object.isFrozen(transaction)).toBe(true);
+    expect(source.rawDescription).toBe(rawDescription);
+    expect(source).toEqual(before);
   });
 });

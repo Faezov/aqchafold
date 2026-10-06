@@ -16,7 +16,7 @@ export type MerchantNormalizationResult = {
  * The caller retains rawDescription as immutable source evidence. Never overwrite
  * Transaction.rawDescription or assign a Merchant/Category from this result.
  * Later steps may consume normalizedDescription as derived text; it is not new
- * source evidence. No implementation or transformation pipeline is defined here.
+ * source evidence. This contract defines no composition framework.
  */
 export interface MerchantDescriptionNormalizer {
   (rawDescription: string): MerchantNormalizationResult;

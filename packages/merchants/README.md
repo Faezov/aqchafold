@@ -1,7 +1,7 @@
 # packages/merchants
 
 Bank-, database-, and platform-independent merchant-resolution logic for Ledgerase.
-The package currently defines only a textual normalization contract.
+The package defines a textual normalization contract and its first production step.
 
 `MerchantDescriptionNormalizer` is a pure, deterministic, synchronous callable:
 
@@ -30,7 +30,21 @@ framework, provenance copy, version, confidence, or transformation metadata is
 needed for this contract; nothing is cached or persisted here. Derived text
 remains sensitive local financial data and must not be logged or transmitted.
 
-There is no production normalizer yet. Type tests check the public API; a
-test-only whitespace implementation demonstrates the documented policy and source
-preservation. Processor-prefix/suffix handling, identity resolution, aliases,
+`normalizePaymentProcessorPrefix` implements `MerchantDescriptionNormalizer`.
+It normalizes whitespace first, then strips one leading `SQ *` or `PAYPAL *`
+wrapper. Processor tokens match ASCII case-insensitively. A space before the
+literal `*` is required after whitespace normalization; a space afterward is
+optional. Supported forms are `SQ *MERCHANT`, `SQ * MERCHANT`,
+`PAYPAL *MERCHANT`, and `PAYPAL * MERCHANT`. Prefix-only input yields `""`.
+`SQ*`, `PAYPAL*`, `PP*`, other separators, and other processor tokens are
+unsupported and receive only whitespace normalization.
+
+Matching is anchored at the beginning, never in the middle/end or as a substring.
+Removal happens once: `SQ *PAYPAL *Shop` yields `PAYPAL *Shop`, retaining the
+second wrapper. The remaining case, accents, punctuation, and location/suffix
+text are preserved. For example, ` SQ *EXAMPLE SHOP Sydney NS AUS ` yields
+`EXAMPLE SHOP Sydney NS AUS`, still only a textual candidate.
+
+Tests check the public contract and production behavior using synthetic
+descriptions. Location/noise suffix removal, identity resolution, aliases,
 rules, category assignment, persistence, and UI remain separate later tasks.
