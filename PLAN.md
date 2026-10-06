@@ -132,7 +132,7 @@ Keep this intentionally ugly/simple.
 - [X] Import a CommBank statement from the phone
 - [X] Show import result
 - [X] Show reconciliation status
-- [ ] Display imported transactions
+- [X] Display imported transactions
 
 Milestone:
 Bulat can install Ledgerase, import a statement, and see transactions.

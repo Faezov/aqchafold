@@ -97,6 +97,12 @@ plain result with that count, the Account label, and filename when available.
 Duplicate, unsupported-format, and failure results have distinct fixed messages
 without identifiers, financial source contents, or underlying diagnostics.
 
+Only a successful result offers View transactions, using the existing Home
+navigation. It opens the canonical all-transactions screen, which reads current
+SQLite records on every entry. No rows are highlighted or associated with an
+Import in persistence. Back returns to the retained result and reconciliation
+summary; other outcomes retain the normal Home Transactions destination.
+
 Reconciliation is summarized directly from `ParsedStatement.reconciliation` as
 total row checks, verified row checks, and the explicit closing-check status.
 Successful results show the verified row count and closing status separately from

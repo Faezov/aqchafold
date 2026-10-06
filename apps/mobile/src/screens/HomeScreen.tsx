@@ -222,6 +222,14 @@ export default function HomeScreen({
                   ? "Closing balance verified"
                   : "Closing balance could not be verified"}
               </Text>
+              <Pressable
+                onPress={onOpenTransactions}
+                accessibilityRole="button"
+                accessibilityLabel="View transactions"
+                style={[styles.destination, styles.available]}
+              >
+                <Text style={styles.destinationTitle}>View transactions</Text>
+              </Pressable>
             </>
           ) : (
             <Text style={styles.description}>

@@ -142,6 +142,7 @@ function expectNoPersistence() {
 
 it("imports exact selected bytes as eleven canonical Transactions and a completed Import", async () => {
   const original = bytes.slice();
+  expect(transactions.list()).toEqual([]);
   expect(await importStatement(options)).toEqual({
     status: "imported",
     transactionCount: 11,
@@ -165,12 +166,9 @@ it("imports exact selected bytes as eleven canonical Transactions and a complete
   });
   const persisted = transactions.list();
   expect(persisted).toHaveLength(11);
-  expect(new Set(persisted.map(({ id }) => id))).toEqual(
-    new Set(
-      Array.from(
-        { length: 11 },
-        (_, index) => `attempt-1:transaction:1:${index + 1}`,
-      ),
+  expect(persisted.map(({ id }) => id)).toEqual(
+    [11, 10, 9, 8, 6, 7, 5, 3, 4, 1, 2].map(
+      (row) => `attempt-1:transaction:1:${row}`,
     ),
   );
   for (const transaction of persisted) {
