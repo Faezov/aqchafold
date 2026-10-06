@@ -1,5 +1,6 @@
 import type {
   ParsedStatement,
+  ParsedStatementBalance,
   ParsedStatementRow,
 } from "@aqchafold/importers-core";
 import type { TextItem } from "pdfjs-serverless";
@@ -181,6 +182,58 @@ function amountCells(
   return { rawDebit, rawCredit, warnings };
 }
 
+function balanceRuns(
+  items: readonly TextItem[],
+  y: number,
+  left: number,
+  right = Infinity,
+): TextItem[] {
+  return items
+    .filter(
+      (item) =>
+        item.str.length > 0 &&
+        (item.str.trim() || item.height > 0) &&
+        Math.abs(item.transform[5] - y) <= 2 &&
+        item.transform[4] >= left &&
+        item.transform[4] <= right,
+    )
+    .sort((a, b) => a.transform[4] - b.transform[4]);
+}
+
+function balanceCell(items: readonly TextItem[], name: string) {
+  const warnings: string[] = [];
+  const unique = items.filter(
+    (item, index) =>
+      !items
+        .slice(0, index)
+        .some(
+          (other) =>
+            other.str === item.str &&
+            Math.abs(other.transform[4] - item.transform[4]) <= 2 &&
+            Math.abs(other.transform[5] - item.transform[5]) <= 2,
+        ),
+  );
+  const rawValue = unique.length
+    ? unique.map((item) => item.str).join(" ")
+    : undefined;
+  if (unique.length < items.length)
+    warnings.push(`Identical overlapping ${name} text runs were collapsed.`);
+  if (!unique.length) warnings.push(`The ${name} value is missing.`);
+  else if (unique.length > 1)
+    warnings.push(
+      `The ${name} has multiple text runs; its value is ambiguous.`,
+    );
+  else if (
+    rawValue !== undefined &&
+    (!rawValue.startsWith("$") ||
+      parseDecimalMagnitudeMinor(rawValue.slice(1)) === undefined)
+  )
+    warnings.push(
+      `The ${name} is not valid dollar-prefixed two-decimal notation.`,
+    );
+  return { rawValue, warnings };
+}
+
 function dateContext(
   items: readonly TextItem[],
   openingYears: readonly number[],
@@ -218,15 +271,26 @@ function dateContext(
 /** Bank-specific source rows; Money remains unresolved until currency is established. */
 export function parseBrowserSummaryRows(
   pages: readonly (readonly TextItem[])[],
-): Pick<ParsedStatement, "rows" | "warnings"> {
+): Pick<
+  ParsedStatement,
+  "rows" | "warnings" | "openingBalance" | "closingBalance"
+> {
   const warnings: string[] = [];
   const openingYears: number[] = [];
+  const openingEntries: {
+    rawText: string;
+    dates: string[];
+    ambiguousLabel: boolean;
+    position: { page: number; row: number };
+    cell: ReturnType<typeof balanceCell>;
+  }[] = [];
   const records: {
     page: number;
     dates: string[];
     rawText: string;
     description: Pick<ParsedStatementRow, "rawDescription" | "warnings">;
     amounts: Pick<ParsedStatementRow, "rawDebit" | "rawCredit" | "warnings">;
+    balance: ReturnType<typeof balanceCell>;
   }[] = [];
   const sourcePages = pages.map((items) => {
     const seen = new Set<string>();
@@ -274,16 +338,42 @@ export function parseBrowserSummaryRows(
     let dates: string[] = [];
     let text: string[] = [];
     let descriptionLines: TextItem[][] = [];
+    let tableRow = 0;
     for (const line of lines(body)) {
-      const opening = line.items.find(
+      const openingLabels = line.items.filter(
         (item) =>
           item.transform[4] >= transaction.transform[4] - 2 &&
           item.transform[4] < movementLeft &&
           /^(?:\d{4}\s+)?opening balance$/i.test(item.str.trim()),
       );
+      const opening = openingLabels[0];
       if (opening) {
         const year = /^(\d{4})\s+/i.exec(opening.str.trim());
         if (year) openingYears.push(Number(year[1]));
+        openingEntries.push({
+          rawText: line.items.map((item) => item.str).join(" "),
+          ambiguousLabel:
+            new Set(openingLabels.map((item) => normalized(item.str))).size > 1,
+          dates: [
+            ...new Set(
+              line.items
+                .filter(
+                  (item) => item.transform[4] < transaction.transform[4] - 2,
+                )
+                .map((item) => item.str),
+            ),
+          ],
+          position: { page: index + 1, row: ++tableRow },
+          cell: balanceCell(
+            balanceRuns(
+              pages[index],
+              line.y,
+              movementRight,
+              balance.transform[4] + balance.width + 2,
+            ),
+            "opening balance",
+          ),
+        });
         dates = [];
         text = [];
         descriptionLines = [];
@@ -333,12 +423,22 @@ export function parseBrowserSummaryRows(
             item.transform[4] <= balance.transform[4] + balance.width + 2,
         );
       if (!movementItems.length && !hasBalanceCell) continue;
+      tableRow++;
       records.push({
         page: index + 1,
         dates,
         rawText: text.join("\n"),
         description: description(descriptionLines),
         amounts: amountCells(movementItems, debit, credit),
+        balance: balanceCell(
+          balanceRuns(
+            pages[index],
+            line.y,
+            movementRight,
+            balance.transform[4] + balance.width + 2,
+          ),
+          "running balance",
+        ),
       });
       dates = [];
       text = [];
@@ -350,6 +450,88 @@ export function parseBrowserSummaryRows(
     warnings.push(
       "The Period and opening-balance year do not establish an unambiguous same-year date range.",
     );
+  let openingBalance: ParsedStatementBalance | undefined;
+  for (const entry of openingEntries) warnings.push(...entry.cell.warnings);
+  if (!openingEntries.length)
+    warnings.push("No explicit opening-balance entry was established.");
+  else {
+    const rawDate = openingEntries
+      .map((entry) => entry.dates.join(" "))
+      .join("\n");
+    openingBalance = {
+      rawText: openingEntries.map((entry) => entry.rawText).join("\n"),
+      rawValue: openingEntries
+        .map((entry) => entry.cell.rawValue ?? "")
+        .join("\n"),
+      ...(rawDate ? { rawDate } : {}),
+      ...(openingEntries.length === 1
+        ? { position: openingEntries[0].position }
+        : {}),
+    };
+    if (openingEntries.length !== 1)
+      warnings.push(
+        "Multiple opening-balance entries are ambiguous; no entry was selected.",
+      );
+    else if (openingEntries[0].ambiguousLabel)
+      warnings.push(
+        "Conflicting opening-balance labels make its date ambiguous; no date was selected.",
+      );
+    else {
+      const entry = openingEntries[0];
+      const date =
+        context && entry.dates.length === 1
+          ? calendarDate(entry.dates[0], context.year)
+          : undefined;
+      if (date && context && date >= context.start && date <= context.end)
+        openingBalance = { ...openingBalance, date };
+      else
+        warnings.push(
+          "The opening-balance date is unresolved from the established date context.",
+        );
+    }
+  }
+  const closingEntries: {
+    rawText: string;
+    cell: ReturnType<typeof balanceCell>;
+  }[] = [];
+  const firstTable = tableColumns(sourcePages[0] ?? []);
+  for (const line of lines(sourcePages[0] ?? [])) {
+    if (!firstTable || line.y <= firstTable[0].transform[5]) continue;
+    const labels = line.items.filter(
+      (item) => normalized(item.str) === "closing balance",
+    );
+    if (!labels.length) continue;
+    const left = Math.min(...labels.map((item) => item.transform[4]));
+    const right = Math.min(
+      ...labels.map((item) => item.transform[4] + item.width),
+    );
+    closingEntries.push({
+      rawText: line.items
+        .filter((item) => item.transform[4] >= left - 2)
+        .map((item) => item.str)
+        .join(" "),
+      cell: balanceCell(
+        balanceRuns(pages[0], line.y, right),
+        "header closing balance",
+      ),
+    });
+  }
+  let closingBalance: ParsedStatementBalance | undefined;
+  for (const entry of closingEntries) warnings.push(...entry.cell.warnings);
+  if (!closingEntries.length)
+    warnings.push("No header closing-balance evidence was established.");
+  else {
+    closingBalance = {
+      rawText: closingEntries.map((entry) => entry.rawText).join("\n"),
+      rawValue: closingEntries
+        .map((entry) => entry.cell.rawValue ?? "")
+        .join("\n"),
+    };
+    if (closingEntries.length !== 1)
+      warnings.push(
+        "Multiple header closing-balance entries are ambiguous; no entry was selected.",
+      );
+  }
   const rows: ParsedStatementRow[] = records.map((record, index) => {
     const rawPostingDate = record.dates.length
       ? record.dates.join(" ")
@@ -357,6 +539,7 @@ export function parseBrowserSummaryRows(
     const rowWarnings: string[] = [
       ...record.description.warnings,
       ...record.amounts.warnings,
+      ...record.balance.warnings,
     ];
     let postingDate: string | undefined;
     if (rawPostingDate === undefined)
@@ -388,6 +571,9 @@ export function parseBrowserSummaryRows(
       rawText: record.rawText,
       rawDebit: record.amounts.rawDebit,
       rawCredit: record.amounts.rawCredit,
+      ...(record.balance.rawValue === undefined
+        ? {}
+        : { rawBalance: record.balance.rawValue }),
       ...(record.description.rawDescription === undefined
         ? {}
         : { rawDescription: record.description.rawDescription }),
@@ -396,5 +582,10 @@ export function parseBrowserSummaryRows(
       warnings: rowWarnings,
     };
   });
-  return { rows, warnings };
+  return {
+    rows,
+    warnings,
+    ...(openingBalance ? { openingBalance } : {}),
+    ...(closingBalance ? { closingBalance } : {}),
+  };
 }

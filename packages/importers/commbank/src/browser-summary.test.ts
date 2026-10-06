@@ -29,6 +29,14 @@ const reference = JSON.parse(
     "utf8",
   ),
 ) as {
+  headerEvidence: { rawClosingBalance: string };
+  openingBalanceEvidence: {
+    page: number;
+    tableRow: number;
+    rawDate: string;
+    rawDescription: string;
+    rawBalance: string;
+  };
   sourceRows: readonly {
     rawDate: string;
     rawDescription: string;
@@ -283,7 +291,6 @@ describe("CommBank browser Transaction Summary posting dates", () => {
         "rawTransactionDate",
         "transactionDate",
         "rawAmount",
-        "rawBalance",
         "amount",
         "balance",
         "sourceTransactionId",
@@ -291,8 +298,8 @@ describe("CommBank browser Transaction Summary posting dates", () => {
         expect(row[field]).toBeUndefined();
       }
     }
-    expect(statement.openingBalance).toBeUndefined();
-    expect(statement.closingBalance).toBeUndefined();
+    expect(statement.openingBalance?.value).toBeUndefined();
+    expect(statement.closingBalance?.value).toBeUndefined();
   });
 
   it("keeps repeated dates separate and does not reorder dates", async () => {
@@ -314,7 +321,7 @@ describe("CommBank browser Transaction Summary posting dates", () => {
     ]);
   });
 
-  it("preserves extracted date, description, and debit runs without trimming or collapsing whitespace", async () => {
+  it("preserves extracted date, description, debit, and balance runs without trimming or collapsing whitespace", async () => {
     const task = getDocument({
       data: new Uint8Array(fixture),
       verbosity: 0,
@@ -336,6 +343,8 @@ describe("CommBank browser Transaction Summary posting dates", () => {
       expect(description).toBeDefined();
       const debit = items.find((item) => item.str === "38.47");
       expect(debit).toBeDefined();
+      const balance = items.find((item) => item.str === "$6,368.88");
+      expect(balance).toBeDefined();
       // PDF.js coalesces drawing whitespace before yielding runs. This tests the
       // importer boundary directly, preserving the run supplied by extraction.
       const source = items.map((item) =>
@@ -345,7 +354,9 @@ describe("CommBank browser Transaction Summary posting dates", () => {
             ? { ...item, str: " FIXTURE  MARKET EXAMPLEVILLE " }
             : item === debit
               ? { ...item, str: " 38.47 " }
-              : item,
+              : item === balance
+                ? { ...item, str: " $6,368.88 " }
+                : item,
       );
       const { rows } = parseBrowserSummaryRows([source]);
       expect(rows[0]!.rawPostingDate).toBe(" 02  Feb ");
@@ -353,6 +364,7 @@ describe("CommBank browser Transaction Summary posting dates", () => {
       expect(rows[0]!.postingDate).toBe("2036-02-02");
       expect(rows[0]!.rawDescription).toBe(" FIXTURE  MARKET EXAMPLEVILLE ");
       expect(rows[0]!.rawDebit).toBe(" 38.47 ");
+      expect(rows[0]!.rawBalance).toBe(" $6,368.88 ");
       expect(rows[0]!.amount).toBeUndefined();
       expect(rows[0]!.warnings.join(" ")).toMatch(/not a valid.*magnitude/i);
       expect(debit!.height).toBeGreaterThan(0);
@@ -609,12 +621,11 @@ describe("CommBank browser Transaction Summary Debit/Credit evidence", () => {
     );
     expect(statement.rows[3]!.rawDebit).toBe("24.19");
     expect(statement.metadata).toEqual({ rawText: "" });
-    expect(statement.openingBalance).toBeUndefined();
-    expect(statement.closingBalance).toBeUndefined();
+    expect(statement.openingBalance?.value).toBeUndefined();
+    expect(statement.closingBalance?.value).toBeUndefined();
     for (const row of statement.rows) {
       expect(row.rawAmount).toBeUndefined();
       expect(row.amount).toBeUndefined();
-      expect(row.rawBalance).toBeUndefined();
       expect(row.balance).toBeUndefined();
       expect(row.sourceTransactionId).toBeUndefined();
     }
@@ -669,7 +680,7 @@ describe("CommBank browser Transaction Summary Debit/Credit evidence", () => {
       expect(rows[0]!.postingDate).toBe("2036-02-02");
       expect(rows[0]!.rawDescription).toBe("SYNTHETIC MOVEMENT 1");
       expect(rows[0]!.rawText).toContain("$100.00");
-      expect(rows[0]!.rawBalance).toBeUndefined();
+      expect(rows[0]!.rawBalance).toBe("$100.00");
       expect(rows[0]!.amount).toBeUndefined();
       expect(rows[0]!.warnings.join(" ")).toMatch(
         /neither|missing|exactly one/i,
@@ -776,5 +787,291 @@ describe("CommBank browser Transaction Summary Debit/Credit evidence", () => {
     ]) {
       expect(parseDecimalMagnitudeMinor(raw)).toBeUndefined();
     }
+  });
+});
+
+describe("CommBank browser Transaction Summary balance evidence", () => {
+  it("preserves eleven running balances and explicit opening/header closing evidence without Money", async () => {
+    const statement = await parse(fixture);
+    const opening = reference.openingBalanceEvidence;
+    expect(statement.rows).toHaveLength(11);
+    expect(statement.rows.map(({ rawBalance }) => rawBalance)).toEqual(
+      reference.sourceRows.map(({ rawBalance }) => rawBalance),
+    );
+    expect(statement.openingBalance).toEqual({
+      rawValue: opening.rawBalance,
+      rawDate: opening.rawDate,
+      rawText: `${opening.rawDate} ${opening.rawDescription} ${opening.rawBalance}`,
+      position: { page: opening.page, row: opening.tableRow },
+      date: "2036-02-01",
+    });
+    expect(statement.closingBalance).toEqual({
+      rawValue: reference.headerEvidence.rawClosingBalance,
+      rawText: `Closing Balance ${reference.headerEvidence.rawClosingBalance}`,
+    });
+    expect(
+      statement.rows.every(
+        ({ rawText }) => !rawText.includes("OPENING BALANCE"),
+      ),
+    ).toBe(true);
+    for (const row of statement.rows) {
+      expect(row.balance).toBeUndefined();
+      expect(row.amount).toBeUndefined();
+      expect(row.rawAmount).toBeUndefined();
+      expect(row.transactionDate).toBeUndefined();
+      expect(row.sourceTransactionId).toBeUndefined();
+    }
+    expect(statement.openingBalance?.value).toBeUndefined();
+    expect(statement.closingBalance?.value).toBeUndefined();
+    expect(statement.metadata).toEqual({ rawText: "" });
+  });
+
+  it.each(["absent", "empty"])(
+    "leaves an %s running Balance cell unresolved with a row warning",
+    async (variant) => {
+      const runs = dateSummary(["02 Feb"]);
+      if (variant === "empty") runs.push({ text: "", x: 490, y: 460 });
+      const { rows } = await parse(makePdf(runs));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.rawBalance).toBeUndefined();
+      expect(rows[0]!.balance).toBeUndefined();
+      expect(rows[0]!.postingDate).toBe("2036-02-02");
+      expect(rows[0]!.rawDebit).toBe("1.00");
+      expect(rows[0]!.warnings.join(" ")).toMatch(
+        /balance.*missing|no.*balance/i,
+      );
+    },
+  );
+
+  it.each([
+    "$1,23.45",
+    "$1.2",
+    "$1.234",
+    "-$1.00",
+    "$-1.00",
+    "($1.00)",
+    "100.00",
+    "$90071992547409.92",
+  ])(
+    "preserves malformed or unsupported Balance notation %s without repair",
+    async (raw) => {
+      const runs = dateSummary(["02 Feb"]);
+      runs.push({ text: raw, x: 490, y: 460 });
+      const { rows } = await parse(makePdf(runs));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.rawBalance).toBe(raw);
+      expect(rows[0]!.balance).toBeUndefined();
+      expect(rows[0]!.rawText).toContain(raw);
+      expect(rows[0]!.warnings.join(" ")).toMatch(
+        /balance.*not.*valid|invalid.*balance/i,
+      );
+    },
+  );
+
+  it("preserves conflicting overlapping running balances deterministically without choosing a value", async () => {
+    const runs = [
+      ...dateSummary(["02 Feb"]),
+      { text: "$100.00", x: 490, y: 460 },
+    ];
+    const conflict = { text: "$200.00", x: 490.5, y: 460.5 };
+    const evidence: (string | undefined)[] = [];
+    for (const source of [
+      [...runs, conflict],
+      [conflict, ...runs],
+    ]) {
+      const { rows } = await parse(makePdf(source));
+      expect(rows).toHaveLength(1);
+      evidence.push(rows[0]!.rawBalance);
+      expect(rows[0]!.rawBalance).toContain("$100.00");
+      expect(rows[0]!.rawBalance).toContain("$200.00");
+      expect(rows[0]!.balance).toBeUndefined();
+      expect(rows[0]!.rawText).toContain("$100.00");
+      expect(rows[0]!.rawText).toContain("$200.00");
+      expect(rows[0]!.warnings.join(" ")).toMatch(
+        /balance.*ambiguous|ambiguous.*balance/i,
+      );
+    }
+    expect(evidence[0]).toBe(evidence[1]);
+  });
+
+  it("collapses shifted identical Balance copies while preserving existing raw row text", async () => {
+    const runs = [
+      ...dateSummary(["02 Feb"]),
+      { text: "$100.00", x: 490, y: 460 },
+    ];
+    const duplicate = { text: "$100.00", x: 490.5, y: 460.5 };
+    for (const source of [
+      [...runs, duplicate],
+      [duplicate, ...runs],
+    ]) {
+      const { rows } = await parse(makePdf(source));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.rawBalance).toBe("$100.00");
+      expect(rows[0]!.rawText.match(/\$100\.00/g)).toHaveLength(2);
+      expect(rows[0]!.warnings.join(" ")).toMatch(
+        /overlapping.*balance|balance.*collapsed/i,
+      );
+      expect(rows[0]!.balance).toBeUndefined();
+    }
+  });
+
+  it("preserves multiple explicit opening entries without selecting a date, position, or value", async () => {
+    const runs = dateSummary(["02 Feb"]);
+    runs.push(
+      { text: "02 Jan", x: 40, y: 470 },
+      { text: "2036 OPENING BALANCE", x: 110, y: 470 },
+      { text: "$200.00", x: 490, y: 470 },
+    );
+    const statement = await parse(makePdf(runs));
+    expect(statement.rows).toHaveLength(1);
+    expect(statement.rows[0]!.postingDate).toBe("2036-02-02");
+    expect(statement.openingBalance?.rawValue).toBe("$100.00\n$200.00");
+    expect(statement.openingBalance?.rawDate).toBe("01 Jan\n02 Jan");
+    expect(statement.openingBalance?.rawText).toContain(
+      "01 Jan 2036 OPENING BALANCE $100.00",
+    );
+    expect(statement.openingBalance?.rawText).toContain(
+      "02 Jan 2036 OPENING BALANCE $200.00",
+    );
+    expect(statement.openingBalance?.date).toBeUndefined();
+    expect(statement.openingBalance?.position).toBeUndefined();
+    expect(statement.openingBalance?.value).toBeUndefined();
+    expect(statement.warnings.join(" ")).toMatch(
+      /opening.*ambiguous|ambiguous.*opening/i,
+    );
+  });
+
+  it("retains conflicting opening Balance runs while interpreting only its independently established date", async () => {
+    const runs = dateSummary(["02 Feb"]);
+    runs.push({ text: "$200.00", x: 490.5, y: 480.5 });
+    const statement = await parse(makePdf(runs));
+    expect(statement.rows).toHaveLength(1);
+    expect(statement.openingBalance?.rawValue).toContain("$100.00");
+    expect(statement.openingBalance?.rawValue).toContain("$200.00");
+    expect(statement.openingBalance?.date).toBe("2036-01-01");
+    expect(statement.openingBalance?.value).toBeUndefined();
+    expect(statement.warnings.join(" ")).toMatch(
+      /opening.*ambiguous|ambiguous.*opening/i,
+    );
+  });
+
+  it("preserves conflicting opening marker years without changing transaction date interpretation", async () => {
+    const task = getDocument({
+      data: new Uint8Array(fixture),
+      verbosity: 0,
+      disableFontFace: true,
+      useSystemFonts: false,
+    });
+    try {
+      const document = await task.promise;
+      const page = await document.getPage(1);
+      const content = await page.getTextContent({ disableNormalization: true });
+      const items = content.items.filter(
+        (item): item is TextItem => "str" in item,
+      );
+      const opening = items.find((item) => item.str === "2036 OPENING BALANCE");
+      expect(opening).toBeDefined();
+      const transform = [...opening!.transform];
+      transform[4] += 0.5;
+      transform[5] += 0.5;
+      const statement = parseBrowserSummaryRows([
+        [...items, { ...opening!, str: "2035 OPENING BALANCE", transform }],
+      ]);
+      expect(statement.openingBalance?.rawText).toContain(
+        "2036 OPENING BALANCE",
+      );
+      expect(statement.openingBalance?.rawText).toContain(
+        "2035 OPENING BALANCE",
+      );
+      expect(statement.openingBalance?.rawValue).toBe(
+        reference.openingBalanceEvidence.rawBalance,
+      );
+      expect(statement.openingBalance?.date).toBeUndefined();
+      expect(statement.warnings.join(" ")).toMatch(
+        /opening.*ambiguous|ambiguous.*opening/i,
+      );
+      expect(statement.rows.map(({ postingDate }) => postingDate)).toEqual([
+        "2036-02-02",
+        "2036-02-02",
+        "2036-02-03",
+        "2036-02-03",
+        "2036-02-04",
+        "2036-02-05",
+        "2036-02-05",
+        "2036-02-06",
+        "2036-02-07",
+        "2036-02-07",
+        "2036-02-08",
+      ]);
+    } finally {
+      await task.destroy();
+    }
+  });
+
+  it("does not interpret an opening date when the existing statement context is unresolved", async () => {
+    const statement = await parse(
+      makePdf(
+        dateSummary(["02 Feb"], "01 Jan - 31 Dec 2036", "2035 OPENING BALANCE"),
+      ),
+    );
+    expect(statement.openingBalance?.rawDate).toBe("01 Jan");
+    expect(statement.openingBalance?.rawValue).toBe("$100.00");
+    expect(statement.openingBalance?.date).toBeUndefined();
+    expect(statement.warnings.join(" ")).toMatch(
+      /opening.*date|date.*opening/i,
+    );
+  });
+
+  it("preserves conflicting header Closing Balance values without choosing or deriving one", async () => {
+    const runs = dateSummary(["02 Feb"]);
+    runs.push(
+      { text: "$150.00", x: 490, y: 600 },
+      { text: "$200.00", x: 490.5, y: 600.5 },
+      { text: "$400.00", x: 490, y: 460 },
+    );
+    const statement = await parse(makePdf(runs));
+    expect(statement.closingBalance?.rawValue).toContain("$150.00");
+    expect(statement.closingBalance?.rawValue).toContain("$200.00");
+    expect(statement.closingBalance?.rawValue).not.toContain("$400.00");
+    expect(statement.closingBalance?.rawText).toContain("Closing Balance");
+    expect(statement.closingBalance?.date).toBeUndefined();
+    expect(statement.closingBalance?.rawDate).toBeUndefined();
+    expect(statement.closingBalance?.position).toBeUndefined();
+    expect(statement.closingBalance?.value).toBeUndefined();
+    expect(statement.warnings.join(" ")).toMatch(
+      /closing.*ambiguous|ambiguous.*closing/i,
+    );
+  });
+
+  it("preserves multiple header Closing Balance entries as ambiguous evidence", async () => {
+    const runs = dateSummary(["02 Feb"]);
+    runs.push(
+      { text: "$150.00", x: 490, y: 600 },
+      { text: "Closing Balance", x: 300, y: 590 },
+      { text: "$200.00", x: 490, y: 590 },
+    );
+    const statement = await parse(makePdf(runs));
+    expect(statement.closingBalance?.rawValue).toBe("$150.00\n$200.00");
+    expect(statement.closingBalance?.rawText).toBe(
+      "Closing Balance $150.00\nClosing Balance $200.00",
+    );
+    expect(statement.closingBalance?.value).toBeUndefined();
+    expect(statement.warnings.join(" ")).toMatch(
+      /closing.*ambiguous|ambiguous.*closing/i,
+    );
+  });
+
+  it("does not substitute the final running balance for a missing header closing value", async () => {
+    const runs = dateSummary(["02 Feb"]);
+    runs.push({ text: "$400.00", x: 490, y: 460 });
+    const statement = await parse(makePdf(runs));
+    expect(statement.rows[0]!.rawBalance).toBe("$400.00");
+    expect(statement.closingBalance).toEqual({
+      rawValue: "",
+      rawText: "Closing Balance",
+    });
+    expect(statement.warnings.join(" ")).toMatch(
+      /closing.*missing|no.*closing|no.*balance/i,
+    );
   });
 });

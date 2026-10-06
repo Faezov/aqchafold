@@ -40,15 +40,15 @@ The actual ignored government-hosted public reference also detects as 1. Its
 duplicated labels and overlapping OCR are covered by a synthetic regression;
 committed tests and mobile smoke use only synthetic inputs.
 
-`parse()` currently extracts transaction posting dates, source descriptions, and
-raw Debit/Credit cells.
+`parse()` currently extracts transaction posting dates, source descriptions,
+raw Debit/Credit and running Balance cells, and explicit opening/closing evidence.
 Positioned Date-column text starts a row; continuation lines remain in its
 `rawText` until financial cells identify a movement's final baseline.
 Balance-column text can retain a movement with missing Debit/Credit evidence;
-its value is not interpreted or exposed.
-The demonstrated layout places them on the final description line. The explicit
-OPENING BALANCE entry and rows without movement evidence are excluded. Movements
-with missing dates remain separate unresolved rows. Pages and rows retain document
+the demonstrated layout places financial cells on the final description line.
+The explicit OPENING BALANCE entry and rows without movement evidence are excluded
+from transaction rows. Movements with missing dates remain separate unresolved
+rows. Pages and rows retain document
 order, with one-based page numbers and transaction ordinals; repeated dates remain
 distinct. Identical overlapping text runs are collapsed with a document warning.
 
@@ -80,6 +80,30 @@ The current parser establishes no ISO currency evidence: `$`, bank identity, loc
 and environment do not supply it. A document warning explains why `amount` remains
 absent; no default currency or Money instance is introduced.
 
+`rawBalance` uses the positioned Balance-column runs on the movement's final
+baseline, preserving `$`, commas, decimals, and extracted whitespace. Missing
+cells leave it absent with a row warning. Identical overlapping copies collapse
+with a warning; conflicting runs remain joined as raw evidence with an ambiguity
+warning. Validation accepts only the demonstrated unsigned dollar-prefixed,
+two-decimal notation, using the same integer minor-unit helper. Malformed values
+remain unchanged with warnings; unsupported negative formats are not inferred.
+No balance is derived from Debit/Credit values, and `balance` remains absent.
+
+The explicit OPENING BALANCE entry becomes separate `openingBalance` evidence,
+retaining its `rawValue`, `rawDate`, reconstructed `rawText`, and source position
+when established. Its position uses the one-based page and table-entry ordinal,
+including opening entries. Its interpreted date uses only the existing validated
+date context described below. Header Closing Balance becomes `closingBalance`,
+retaining `rawValue` and reconstructed `rawText`. It has no inferred date and never
+falls back to the final running balance.
+
+Opening/closing uncertainty produces document warnings. Multiple entries retain
+their raw evidence joined with newlines without selecting an entry; ambiguous
+opening entries have no chosen position or date. An established label with no
+value retains `rawValue: ""` and a missing-value warning. Both balance `value`
+fields remain absent because an ISO currency has not been established. Conflicting
+overlapping opening labels also leave the new opening date unresolved with a warning.
+
 A row's year is established only when the first-page `DD Mon - DD Mon YYYY` Period
 and the explicit opening-balance year agree on a valid same-year range. Gregorian
 calendar checks reject impossible dates, including invalid leap days. Missing or
@@ -94,6 +118,6 @@ extraction can coalesce whitespace even with Unicode normalization disabled; the
 fields preserve extracted text rather than the PDF drawing instructions. Missing
 date evidence leaves `rawPostingDate` absent. The required metadata object currently
 contains only `rawText: ""`; a document warning makes the deferred extraction explicit.
-Money construction, balances, statement metadata, merchant/category logic,
+Money construction, general statement metadata, merchant/category logic,
 reconciliation, canonical conversion, persistence, and importer selection remain
 deferred.

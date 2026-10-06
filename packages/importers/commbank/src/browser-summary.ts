@@ -108,10 +108,16 @@ export const commbankBrowserSummaryImporter: StatementImporter = {
           version: commbankBrowserSummaryImporter.version,
         },
         metadata: { rawText: "" },
+        ...(result.openingBalance
+          ? { openingBalance: result.openingBalance }
+          : {}),
+        ...(result.closingBalance
+          ? { closingBalance: result.closingBalance }
+          : {}),
         rows: result.rows,
         warnings: [
-          "Only posting dates, descriptions, and raw Debit/Credit values have been parsed; balances, statement metadata, and other row fields remain unresolved.",
-          "Currency has not been established; transaction Money amounts remain unresolved.",
+          "Only source rows and explicit balance evidence have been parsed; general statement metadata and other row fields remain unresolved.",
+          "Currency has not been established; transaction amounts and balance Money values remain unresolved.",
           ...result.warnings,
         ],
       };
