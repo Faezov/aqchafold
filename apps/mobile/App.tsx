@@ -5,6 +5,8 @@ import {
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
+import HomeScreen from "./src/screens/HomeScreen";
+
 export default function App() {
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
     "loading",
@@ -33,15 +35,15 @@ export default function App() {
     };
   }, []);
 
+  if (status === "ready") return <HomeScreen />;
+
   return (
     <View style={styles.container}>
       <Text>Ledgerase</Text>
       <Text>
         {status === "loading"
           ? "Preparing local storage…"
-          : status === "ready"
-            ? "Ledgerase is ready."
-            : "Ledgerase could not initialize local storage. Please restart the app."}
+          : "Ledgerase could not initialize local storage. Please restart the app."}
       </Text>
     </View>
   );

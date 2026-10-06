@@ -19,10 +19,13 @@ This runs `expo start --android` using the existing Expo Go workflow. Use an
 Expo Go version compatible with this app's Expo SDK 57. Alternatively, run
 `start` and scan its QR code with Expo Go on an Android phone on the same network.
 
-The plain Ledgerase shell opens the real local `ledgerase.db` and awaits the
-database package's generated migrations before displaying “Ledgerase is ready.”
+The app root opens the real local `ledgerase.db` and awaits the database package's
+generated migrations before rendering the presentation-only Home screen.
 It closes the initialization connection afterward. Initialization failures show
 a fixed error message without logging database contents.
+
+Home shows the Ledgerase title, local-first copy, and disabled Accounts,
+Transactions, and Import statement controls marked “Not yet available.”
 
 Android bundle validation without a device:
 
