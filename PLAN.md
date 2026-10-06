@@ -128,7 +128,7 @@ Keep this intentionally ugly/simple.
 - [X] Launch Ledgerase on Android
 - [X] Create Home screen
 - [X] Create Accounts screen
-- [ ] Create Transactions screen
+- [X] Create Transactions screen
 - [ ] Add document picker
 - [ ] Import a CommBank statement from the phone
 - [ ] Show import result

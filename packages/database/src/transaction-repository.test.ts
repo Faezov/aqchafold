@@ -379,3 +379,147 @@ describe("TransactionRepository with real SQLite and the Expo Drizzle driver", (
     expect(storedIds()).toEqual([baseline.id]);
   });
 });
+
+describe("TransactionRepository.list with real SQLite and the Expo Drizzle driver", () => {
+  it("returns an empty list without creating Transactions", () => {
+    store.database.delete(schema.transactions).run();
+    expect(repository.list()).toEqual([]);
+    expect(storedIds()).toEqual([]);
+  });
+
+  it("orders newest posting dates first and tied dates by ID, independently of insertion order", () => {
+    const newestZ = new Transaction({
+      ...baseline,
+      id: "z-newest",
+      postingDate: "2036-03-02",
+      origin: "manual",
+    });
+    const middle = new Transaction({
+      ...baseline,
+      id: "middle",
+      postingDate: "2036-02-01",
+      origin: "manual",
+    });
+    const newestA = new Transaction({
+      ...newestZ,
+      id: "a-newest",
+      origin: "manual",
+    });
+    repository.createMany([newestZ, middle, newestA]);
+    expect(repository.list()).toEqual([newestA, newestZ, middle, baseline]);
+  });
+
+  it("preserves canonical Money, signs, zero, descriptions, currencies and optional references", () => {
+    new AccountRepository(store.database).create(
+      new Account({
+        id: "other-account",
+        householdId: "test-household",
+        label: "Synthetic other account",
+        type: "savings",
+        status: "active",
+        primaryCurrency: "EUR",
+        ownership: { kind: "unknown" },
+      }),
+    );
+    const records = [
+      new Transaction({
+        ...baseline,
+        id: "a-negative",
+        amount: new Money(-3847, "USD"),
+        origin: "manual",
+        rawDescription: "  Original description\nUnchanged  ",
+      }),
+      copy(converted[0], {
+        id: "b-zero",
+        postingDate: baseline.postingDate,
+        amount: new Money(0, "USD"),
+        rawDescription: "",
+      }),
+      copy(converted[0], {
+        id: "c-positive",
+        postingDate: baseline.postingDate,
+        transactionDate: "2036-01-30",
+        amount: new Money(3847, "USD"),
+        rawDescription: "SYNTHETIC REFUND",
+        merchantId: "test-merchant",
+        categoryId: "test-category",
+      }),
+      new Transaction({
+        ...baseline,
+        id: "d-other-currency",
+        accountId: "other-account",
+        amount: new Money(-500, "EUR"),
+        origin: "manual",
+      }),
+    ];
+    repository.createMany([...records].reverse());
+    const listed = repository.list();
+    expect(listed).toEqual([...records, baseline]);
+    for (const transaction of listed) {
+      expect(transaction).toBeInstanceOf(Transaction);
+      expect(transaction.amount).toBeInstanceOf(Money);
+    }
+    expect(listed[1].amount.amountMinor).toBe(0);
+    expect(listed[1].rawDescription).toBe("");
+    expect(listed[4].rawDescription).toBeUndefined();
+  });
+
+  it("reads newly persisted Transactions on a subsequent list call", () => {
+    expect(repository.list()).toEqual([baseline]);
+    const transaction = new Transaction({
+      ...baseline,
+      id: "new-transaction",
+      postingDate: "2036-02-01",
+      origin: "manual",
+    });
+    repository.create(transaction);
+    expect(repository.list()).toEqual([transaction, baseline]);
+  });
+
+  it.each([
+    [
+      "malformed posting date",
+      "UPDATE transactions SET posting_date = '2036-02-30' WHERE id = 'invalid';",
+      /date/i,
+    ],
+    [
+      "missing imported description",
+      "PRAGMA ignore_check_constraints = ON; UPDATE transactions SET raw_description = NULL WHERE id = 'invalid';",
+      /description/i,
+    ],
+    [
+      "missing Account",
+      "PRAGMA foreign_keys = OFF; DELETE FROM accounts;",
+      /existing Account/,
+    ],
+    [
+      "mismatched Account currency",
+      "UPDATE transactions SET currency = 'AUD' WHERE id = 'invalid';",
+      /currency.*Account/i,
+    ],
+    [
+      "missing Merchant",
+      "PRAGMA foreign_keys = OFF; DELETE FROM merchants;",
+      /existing Merchant/,
+    ],
+    [
+      "missing Category",
+      "PRAGMA foreign_keys = OFF; DELETE FROM categories;",
+      /existing Category/,
+    ],
+  ] as const)(
+    "rejects %s instead of returning a partial list",
+    (_, sql, diagnostic) => {
+      repository.create(
+        copy(converted[0], {
+          id: "invalid",
+          postingDate: baseline.postingDate,
+          merchantId: "test-merchant",
+          categoryId: "test-category",
+        }),
+      );
+      store.sqlite.exec(sql);
+      expect(() => repository.list()).toThrow(diagnostic);
+    },
+  );
+});

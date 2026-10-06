@@ -8,9 +8,13 @@ import {
 
 type HomeScreenProps = {
   onOpenAccounts: () => void;
+  onOpenTransactions: () => void;
 };
 
-export default function HomeScreen({ onOpenAccounts }: HomeScreenProps) {
+export default function HomeScreen({
+  onOpenAccounts,
+  onOpenTransactions,
+}: HomeScreenProps) {
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <Text accessibilityRole="header" style={styles.title}>
@@ -31,14 +35,13 @@ export default function HomeScreen({ onOpenAccounts }: HomeScreenProps) {
       </Pressable>
 
       <Pressable
-        disabled
+        onPress={onOpenTransactions}
         accessibilityRole="button"
-        accessibilityLabel="Transactions, not yet available"
-        accessibilityState={{ disabled: true }}
-        style={styles.destination}
+        accessibilityLabel="Transactions"
+        style={[styles.destination, styles.available]}
       >
         <Text style={styles.destinationTitle}>Transactions</Text>
-        <Text style={styles.unavailable}>Not yet available</Text>
+        <Text style={styles.description}>View saved transactions</Text>
       </Pressable>
 
       <Pressable

@@ -29,7 +29,18 @@ Home opens Accounts through simple app-level state. Accounts reads real canonica
 records using `AccountRepository.list()` whenever entered, with loading, empty,
 and sanitized error states. It shows label, type, status, primary currency, and
 ownership kind; no balances are inferred. The Back control and Android Back return
-Home. Transactions and Import statement remain disabled and marked “Not yet available.”
+Home.
+
+Transactions uses the same connection and reads `TransactionRepository.list()` once
+per entry. Rows show posting date, unchanged raw description (or an explicit
+absence), signed amount with currency, and Account ID. Ordering is posting date
+descending, then ID ascending. Zero-value records remain visible. Loading, empty,
+and sanitized error states follow Accounts; both Back controls return Home.
+
+The presentation-local formatter supports AUD's two-decimal display using integer
+digit strings, without floating-point monetary conversion. Other currencies show
+exact signed minor units because currency-scale metadata is not implemented.
+Import statement remains disabled and marked “Not yet available.”
 
 Android bundle validation without a device:
 

@@ -2,12 +2,14 @@ import {
   AccountRepository,
   migrateLedgeraseDatabase,
   openLedgeraseDatabase,
+  TransactionRepository,
 } from "@aqchafold/database";
 import { useEffect, useState } from "react";
 import { BackHandler, StyleSheet, Text, View } from "react-native";
 
 import AccountsScreen from "./src/screens/AccountsScreen";
 import HomeScreen from "./src/screens/HomeScreen";
+import TransactionsScreen from "./src/screens/TransactionsScreen";
 
 type AppState =
   | { status: "loading" }
@@ -16,11 +18,14 @@ type AppState =
       status: "ready";
       database: ReturnType<typeof openLedgeraseDatabase>;
       accountRepository: AccountRepository;
+      transactionRepository: TransactionRepository;
     };
 
 export default function App() {
   const [state, setState] = useState<AppState>({ status: "loading" });
-  const [screen, setScreen] = useState<"home" | "accounts">("home");
+  const [screen, setScreen] = useState<"home" | "accounts" | "transactions">(
+    "home",
+  );
 
   useEffect(() => {
     let active = true;
@@ -34,9 +39,15 @@ export default function App() {
           await migrateLedgeraseDatabase(database);
           if (active) {
             const accountRepository = new AccountRepository(database);
+            const transactionRepository = new TransactionRepository(database);
             retained = true;
             retainedDatabase = database;
-            setState({ status: "ready", database, accountRepository });
+            setState({
+              status: "ready",
+              database,
+              accountRepository,
+              transactionRepository,
+            });
           }
         } finally {
           if (!retained) database.$client.closeSync();
@@ -55,7 +66,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (screen !== "accounts") return;
+    if (screen === "home") return;
     const subscription = BackHandler.addEventListener(
       "hardwareBackPress",
       () => {
@@ -67,13 +78,27 @@ export default function App() {
   }, [screen]);
 
   if (state.status === "ready") {
-    return screen === "accounts" ? (
-      <AccountsScreen
-        repository={state.accountRepository}
-        onBack={() => setScreen("home")}
+    if (screen === "accounts") {
+      return (
+        <AccountsScreen
+          repository={state.accountRepository}
+          onBack={() => setScreen("home")}
+        />
+      );
+    }
+    if (screen === "transactions") {
+      return (
+        <TransactionsScreen
+          repository={state.transactionRepository}
+          onBack={() => setScreen("home")}
+        />
+      );
+    }
+    return (
+      <HomeScreen
+        onOpenAccounts={() => setScreen("accounts")}
+        onOpenTransactions={() => setScreen("transactions")}
       />
-    ) : (
-      <HomeScreen onOpenAccounts={() => setScreen("accounts")} />
     );
   }
 

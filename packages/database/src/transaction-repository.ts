@@ -1,5 +1,5 @@
 import type { Transaction } from "@aqchafold/domain";
-import { eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import type { openLedgeraseDatabase } from "./database";
 import { accounts, categories, merchants, transactions } from "./schema";
 import { transactionFromRow, transactionToRow } from "./transaction-mapping";
@@ -44,6 +44,22 @@ export class TransactionRepository {
       const transaction = transactionFromRow(row);
       assertReferences(database, row);
       return transaction;
+    });
+  }
+
+  /** Lists all local Transactions by posting date descending, then ID ascending. */
+  list(): readonly Transaction[] {
+    return this.database.transaction((database) => {
+      const rows = database
+        .select()
+        .from(transactions)
+        .orderBy(desc(transactions.postingDate), asc(transactions.id))
+        .all();
+      return rows.map((row) => {
+        const transaction = transactionFromRow(row);
+        assertReferences(database, row);
+        return transaction;
+      });
     });
   }
 }

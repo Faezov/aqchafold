@@ -82,6 +82,7 @@ new AccountRepository(database).list(); // readonly Account[]; label then ID ord
 new TransactionRepository(database).create(transaction); // void
 new TransactionRepository(database).createMany(transactions); // void
 new TransactionRepository(database).getById(id); // Transaction | undefined
+new TransactionRepository(database).list(); // readonly Transaction[]
 new MerchantRepository(database).create(merchant); // void
 new MerchantRepository(database).getById(id); // Merchant | undefined
 new ImportRepository(database).create(attempt); // void; pending/processing/failed
@@ -130,6 +131,12 @@ inserting in an immediate transaction. Reads use one transaction, reconstruct
 its primary currency must exactly match the Transaction currency. Supplied
 Merchant and Category references must each exist; closed Accounts and archived
 Categories remain valid references.
+
+`TransactionRepository.list()` returns all canonical posted Transactions in one
+read transaction, ordered by posting date descending and ID ascending for ties.
+It preserves Money, descriptions (including empty/absent), optional fields, and
+zero-value movements. It uses the same domain and reference validation as `getById`;
+an invalid row fails the entire read rather than producing a partial list.
 
 `TransactionRepository.createMany(transactions: readonly Transaction[]): void`
 persists a batch of canonical Transactions in supplied order using one immediate
