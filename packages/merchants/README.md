@@ -80,9 +80,13 @@ alone does not identify a Merchant. Lookup does not verify that ID against a
 repository or change Transactions, categories, or confirmation status. Aliases
 are not persisted yet, and no built-in merchant catalog or aliases exist.
 
+Household-scoped durable mappings use the separate
+[MerchantRuleRepository](../database/README.md) in `packages/database`. The pure
+alias contract and resolver remain independent of SQLite.
+
 Tests check the public contracts and production behavior using synthetic
-descriptions. Location/noise suffix removal, broader identity resolution, rules,
-category assignment, persistence, and UI remain separate later tasks.
+descriptions. Location/noise suffix removal, broader identity resolution, rule
+status/priority, category assignment, and UI remain separate later tasks.
 
 There are currently no production location/noise suffix-removal rules. The
 [tracked CommBank reference](../../fixtures/bank-statements/commbank/browser-summary-01.reference.json)

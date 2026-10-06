@@ -155,7 +155,7 @@ raw description
 - [ ] Normalize obvious location/noise suffixes
 - [X] Preserve original transaction description
 - [X] Implement merchant aliases
-- [ ] Implement persistent merchant rules
+- [X] Implement persistent merchant rules
 - [ ] Add confirmed / suggested / unknown status
 - [ ] Ensure user-confirmed rules have highest priority
 - [ ] Aggregate unknown transactions by merchant

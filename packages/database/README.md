@@ -63,10 +63,18 @@ Account, Transaction's Account and optional Merchant/Category, and ownership
 Member rows. No cascading deletes erase history. Merchant and Category currently
 have no Household field in the implemented domain; none is invented here.
 
+`merchant_rules` stores local, durable, Household-scoped exact mappings after
+textual normalization: `household_id` + `normalized_description` → `merchant_id`.
+The composite primary key enforces uniqueness within each Household; all three
+columns are required, with foreign keys to existing Households and Merchants.
+No separate rule ID is needed for the current exact-key operations. The forward
+`0002_merchant_rules.sql` migration adds only this table.
+
 ## Repositories
 
 `HouseholdRepository`, `MemberRepository`, `AccountRepository`,
-`TransactionRepository`, `MerchantRepository`, and `ImportRepository` take an
+`TransactionRepository`, `MerchantRepository`, `MerchantRuleRepository`, and
+`ImportRepository` take an
 already-open Drizzle handle.
 They do not open connections or apply migrations; tables must exist before use.
 Their synchronous APIs are:
@@ -85,6 +93,9 @@ new TransactionRepository(database).getById(id); // Transaction | undefined
 new TransactionRepository(database).list(); // readonly Transaction[]
 new MerchantRepository(database).create(merchant); // void
 new MerchantRepository(database).getById(id); // Merchant | undefined
+new MerchantRuleRepository(database).create(rule); // void
+new MerchantRuleRepository(database).get(householdId, normalizedDescription); // MerchantRule | undefined
+new MerchantRuleRepository(database).list(householdId); // readonly MerchantRule[]
 new ImportRepository(database).create(attempt); // void; pending/processing/failed
 new ImportRepository(database).getById(id); // Import | undefined
 new ImportRepository(database).findCompleted(householdId, fingerprint); // Import | undefined
@@ -209,6 +220,32 @@ display name exactly. Reads reconstruct through `Merchant`, rejecting invalid
 persisted fields, or return `undefined` when absent. IDs are unique through the
 existing primary key; duplicate display names remain allowed. Each operation is
 one SQL statement. Category assignment and merchant resolution remain separate.
+
+`MerchantRule` is a database-local readonly record containing `householdId`,
+`normalizedDescription`, and `merchantId`. It is structurally compatible with the
+pure in-memory `MerchantAlias` mapping, but includes durable Household scope.
+SQLite concerns remain in this package; the pure alias resolver is independent
+of persistence and does not load these rules automatically.
+
+Rule creation validates nonblank strings without changing their values, checks
+both references, and inserts in one immediate transaction. Both identical
+duplicates and conflicting mappings for the same Household/description are
+explicit errors; creation never updates, replaces, or silently reuses a record.
+The composite primary key independently prevents duplicate keys. The same exact
+description can map to different Merchants in different Households. Normal v0.1
+Household setup still permits only one Household in a local store.
+
+Rule lookup uses exact, case-sensitive SQLite BINARY text equality. It never
+trims, case-folds, normalizes Unicode, or otherwise reinterprets a key. Empty or
+unmatched descriptions return `undefined`; listing returns only one Household's
+rules in BINARY description order. Reads validate stored values and references
+in one transaction. Errors omit SQL parameters and descriptor contents.
+
+Rules have no confirmed/suggested/unknown status, confidence, priority, or Category.
+They are created only by an explicit repository call: normalization and importing
+Transactions do not create them. Rules are not yet automatically applied to
+Transactions, and creation/lookup never changes `Transaction.rawDescription` or
+its Merchant association. No automatic learning or built-in rule catalog exists.
 
 ### Remaining repository invariants
 

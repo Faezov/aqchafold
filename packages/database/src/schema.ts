@@ -90,6 +90,22 @@ export const merchants = sqliteTable("merchants", {
   displayName: text("display_name").notNull(),
 });
 
+export const merchantRules = sqliteTable(
+  "merchant_rules",
+  {
+    householdId: text("household_id")
+      .notNull()
+      .references(() => households.id),
+    normalizedDescription: text("normalized_description").notNull(),
+    merchantId: text("merchant_id")
+      .notNull()
+      .references(() => merchants.id),
+  },
+  (table) => [
+    primaryKey({ columns: [table.householdId, table.normalizedDescription] }),
+  ],
+);
+
 export const categories = sqliteTable(
   "categories",
   {
