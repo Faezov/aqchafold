@@ -4,6 +4,7 @@ import {
   type PDFDocumentLoadingTask,
   type TextItem,
 } from "pdfjs-serverless";
+import { parseBrowserSummaryDates } from "./browser-summary-dates";
 
 function matchesSummaryHeader(items: readonly TextItem[]): boolean {
   // The public reference has duplicated text layers and overlapping OCR runs.
@@ -76,7 +77,49 @@ export const commbankBrowserSummaryImporter: StatementImporter = {
       await task?.destroy().catch(() => undefined);
     }
   },
-  async parse() {
-    throw new Error("CommBank Transaction Summary parsing is not implemented.");
+  async parse({ bytes }) {
+    let task: PDFDocumentLoadingTask | undefined;
+    try {
+      task = getDocument({
+        data: new Uint8Array(bytes),
+        disableFontFace: true,
+        useSystemFonts: false,
+        useWorkerFetch: false,
+        stopAtErrors: true,
+        verbosity: 0,
+      });
+      const document = await task.promise;
+      const pages: TextItem[][] = [];
+      for (let number = 1; number <= document.numPages; number++) {
+        const page = await document.getPage(number);
+        const content = await page.getTextContent({
+          disableNormalization: true,
+        });
+        pages.push(
+          content.items.filter((item): item is TextItem => "str" in item),
+        );
+      }
+      if (!matchesSummaryHeader(pages[0]))
+        throw new Error("Unsupported CommBank Transaction Summary layout.");
+      const result = parseBrowserSummaryDates(pages);
+      return {
+        parser: {
+          id: commbankBrowserSummaryImporter.id,
+          version: commbankBrowserSummaryImporter.version,
+        },
+        metadata: { rawText: "" },
+        rows: result.rows,
+        warnings: [
+          "Only transaction posting dates have been parsed; statement metadata and other row fields remain unresolved.",
+          ...result.warnings,
+        ],
+      };
+    } catch {
+      throw new Error(
+        "Unable to parse transaction dates from a supported CommBank Transaction Summary.",
+      );
+    } finally {
+      await task?.destroy().catch(() => undefined);
+    }
   },
 };

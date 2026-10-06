@@ -40,6 +40,28 @@ The actual ignored government-hosted public reference also detects as 1. Its
 duplicated labels and overlapping OCR are covered by a synthetic regression;
 committed tests and mobile smoke use only synthetic inputs.
 
-`parse()` explicitly rejects as not implemented. Row/date/amount/balance/metadata
-parsing, reconciliation, canonical conversion, persistence, and importer selection
-remain deferred.
+`parse()` currently extracts transaction posting dates only. Positioned Date-column
+text starts a row; continuation lines remain in its `rawText` until a nonempty
+Debit/Credit cell identifies a movement. Values in those cells are not interpreted.
+The demonstrated layout places them on the final description line. The explicit
+OPENING BALANCE entry and rows without movement evidence are excluded. Movements
+with missing dates remain separate unresolved rows. Pages and rows retain document
+order, with one-based page numbers and transaction ordinals; repeated dates remain
+distinct. Identical overlapping text runs are collapsed with a document warning.
+
+A row's year is established only when the first-page `DD Mon - DD Mon YYYY` Period
+and the explicit opening-balance year agree on a valid same-year range. Gregorian
+calendar checks reject impossible dates, including invalid leap days. Missing or
+conflicting context, ambiguous Date cells, invalid dates, and dates outside that
+range leave `postingDate` unresolved and produce warnings. No current-year fallback
+or cross-year rollover is inferred.
+
+`rawPostingDate` retains the extracted Date text without trimming or changing case.
+`rawText` reconstructs positioned source runs with spaces and line breaks, including
+wrapped descriptions and uninterpreted financial text for later steps. PDF.js text
+extraction can coalesce whitespace even with Unicode normalization disabled; these
+fields preserve extracted text rather than the PDF drawing instructions. Missing
+date evidence leaves `rawPostingDate` absent. The required metadata object currently
+contains only `rawText: ""`; a document warning makes the deferred extraction explicit.
+Descriptions, amounts, balances, statement metadata, reconciliation, canonical
+conversion, persistence, and importer selection remain deferred.

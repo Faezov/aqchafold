@@ -4,7 +4,9 @@ import { Buffer } from "node:buffer";
 import { readFileSync } from "node:fs";
 import { URL } from "node:url";
 import { deflateSync } from "node:zlib";
+import { getDocument, type TextItem } from "pdfjs-serverless";
 import { describe, expect, it, vi } from "vitest";
+import { parseBrowserSummaryDates } from "./browser-summary-dates";
 import { commbankBrowserSummaryImporter } from "./browser-summary";
 
 const fixture = new Uint8Array(
@@ -15,6 +17,15 @@ const fixture = new Uint8Array(
     ),
   ),
 );
+const reference = JSON.parse(
+  readFileSync(
+    new URL(
+      "../../../../fixtures/bank-statements/commbank/browser-summary-01.reference.json",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+) as { sourceRows: readonly { rawDate: string }[] };
 
 type TextRun = { text: string; x: number; y: number };
 const header: TextRun[] = [
@@ -190,10 +201,270 @@ describe("CommBank browser Transaction Summary detection", () => {
     expect(await detect(backing.subarray(4, fixture.length + 4))).toBe(1);
     expect(backing).toEqual(before);
   });
+});
 
-  it("rejects parsing explicitly while it remains unavailable", async () => {
-    await expect(
-      commbankBrowserSummaryImporter.parse({ bytes: fixture }),
-    ).rejects.toThrow(/not implemented|unavailable/i);
+function dateSummary(
+  dates: readonly string[],
+  period = "01 Jan - 31 Dec 2036",
+  opening = "2036 OPENING BALANCE",
+): TextRun[] {
+  return [
+    ...header,
+    { text: period, x: 365, y: 620 },
+    { text: period.slice(0, 6), x: 40, y: 480 },
+    { text: opening, x: 110, y: 480 },
+    { text: "$100.00", x: 490, y: 480 },
+    ...dates.flatMap((text, index) => {
+      const y = 460 - index * 20;
+      return [
+        { text, x: 40, y },
+        { text: `SYNTHETIC MOVEMENT ${index + 1}`, x: 110, y },
+        { text: "1.00", x: 330, y },
+      ];
+    }),
+  ];
+}
+
+const parse = (bytes: Uint8Array) =>
+  commbankBrowserSummaryImporter.parse({ bytes });
+
+describe("CommBank browser Transaction Summary posting dates", () => {
+  it("preserves eleven source movements in document order with dates from 2036", async () => {
+    const statement = await parse(fixture);
+    expect(statement.rows).toHaveLength(11);
+    expect(statement.rows.map(({ rawPostingDate }) => rawPostingDate)).toEqual(
+      reference.sourceRows.map(({ rawDate }) => rawDate),
+    );
+    expect(statement.rows.map(({ postingDate }) => postingDate)).toEqual([
+      "2036-02-02",
+      "2036-02-02",
+      "2036-02-03",
+      "2036-02-03",
+      "2036-02-04",
+      "2036-02-05",
+      "2036-02-05",
+      "2036-02-06",
+      "2036-02-07",
+      "2036-02-07",
+      "2036-02-08",
+    ]);
+    expect(statement.rows.map(({ position }) => position)).toEqual(
+      Array.from({ length: 11 }, (_, index) => ({ page: 1, row: index + 1 })),
+    );
+    expect(
+      statement.rows.every(
+        ({ rawText }) => !rawText.includes("OPENING BALANCE"),
+      ),
+    ).toBe(true);
+    expect(statement.metadata).toEqual({ rawText: "" });
+    expect(statement.warnings.length).toBeGreaterThan(0);
   });
+
+  it("retains continuation and source-cell evidence without resolving later fields", async () => {
+    const statement = await parse(fixture);
+    expect(statement.rows[3]!.rawText).toContain(
+      "Direct Debit SYNTHETIC UTILITIES\n91007382",
+    );
+    expect(statement.rows[3]!.rawText).toContain("24.19");
+    expect(statement.rows[3]!.rawText).toContain("$7,515.62");
+    for (const row of statement.rows) {
+      for (const field of [
+        "rawDescription",
+        "rawTransactionDate",
+        "transactionDate",
+        "rawAmount",
+        "rawDebit",
+        "rawCredit",
+        "rawBalance",
+        "amount",
+        "balance",
+        "sourceTransactionId",
+      ] as const) {
+        expect(row[field]).toBeUndefined();
+      }
+    }
+    expect(statement.openingBalance).toBeUndefined();
+    expect(statement.closingBalance).toBeUndefined();
+  });
+
+  it("keeps repeated dates separate and does not reorder dates", async () => {
+    const statement = await parse(
+      makePdf(dateSummary(["03 Feb", "02 Feb", "02 Feb"])),
+    );
+    expect(statement.rows.map(({ postingDate }) => postingDate)).toEqual([
+      "2036-02-03",
+      "2036-02-02",
+      "2036-02-02",
+    ]);
+    expect(statement.rows.map(({ position }) => position.row)).toEqual([
+      1, 2, 3,
+    ]);
+  });
+
+  it("preserves an extracted date run without trimming or collapsing its whitespace", async () => {
+    const task = getDocument({
+      data: new Uint8Array(fixture),
+      verbosity: 0,
+      disableFontFace: true,
+      useSystemFonts: false,
+    });
+    try {
+      const document = await task.promise;
+      const page = await document.getPage(1);
+      const content = await page.getTextContent({ disableNormalization: true });
+      const items = content.items.filter(
+        (item): item is TextItem => "str" in item,
+      );
+      const date = items.find((item) => item.str === "02 Feb");
+      expect(date).toBeDefined();
+      // PDF.js coalesces drawing whitespace before yielding runs. This tests the
+      // importer boundary directly, preserving the run supplied by extraction.
+      const source = items.map((item) =>
+        item === date ? { ...item, str: " 02  Feb " } : item,
+      );
+      const { rows } = parseBrowserSummaryDates([source]);
+      expect(rows[0]!.rawPostingDate).toBe(" 02  Feb ");
+      expect(rows[0]!.rawText).toContain(" 02  Feb ");
+      expect(rows[0]!.postingDate).toBe("2036-02-02");
+    } finally {
+      await task.destroy();
+    }
+  });
+
+  it("retains conflicting date-cell runs unresolved with an ambiguity warning", async () => {
+    const runs = dateSummary(["02 Feb"]);
+    runs.push({ text: "03 Feb", x: 40, y: 460 });
+    const { rows } = await parse(makePdf(runs));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.rawPostingDate).toContain("02 Feb");
+    expect(rows[0]!.rawPostingDate).toContain("03 Feb");
+    expect(rows[0]!.postingDate).toBeUndefined();
+    expect(rows[0]!.warnings.join(" ")).toMatch(/ambiguous/i);
+  });
+
+  it("collapses overlapping duplicate source layers without merging repeated movements", async () => {
+    const runs = dateSummary(
+      reference.sourceRows.map(({ rawDate }) => rawDate),
+    );
+    const statement = await parse(makePdf([...runs, ...runs]));
+    expect(statement.rows).toHaveLength(11);
+    expect(statement.rows.map(({ rawPostingDate }) => rawPostingDate)).toEqual(
+      reference.sourceRows.map(({ rawDate }) => rawDate),
+    );
+    expect(statement.warnings.join(" ")).toMatch(/overlapping/i);
+  });
+
+  it.each(["31 Feb", "00 Feb", "02 Xxx", "not a date"])(
+    "retains malformed movement date %s unresolved with a warning",
+    async (rawDate) => {
+      const { rows } = await parse(makePdf(dateSummary([rawDate])));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.rawPostingDate).toBe(rawDate);
+      expect(rows[0]!.postingDate).toBeUndefined();
+      expect(rows[0]!.warnings.length).toBeGreaterThan(0);
+    },
+  );
+
+  it.each(["absent", "empty"])(
+    "retains a movement with an %s Date cell unresolved",
+    async (variant) => {
+      const runs = dateSummary(["02 Feb"]).filter(
+        ({ x, y }) => !(x === 40 && y === 460),
+      );
+      if (variant === "empty") runs.push({ text: "", x: 40, y: 460 });
+      const { rows } = await parse(makePdf(runs));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.rawPostingDate).toBeUndefined();
+      expect(rows[0]!.postingDate).toBeUndefined();
+      expect(rows[0]!.rawText).toContain("SYNTHETIC MOVEMENT 1");
+      expect(rows[0]!.position).toEqual({ page: 1, row: 1 });
+      expect(rows[0]!.warnings.length).toBeGreaterThan(0);
+    },
+  );
+
+  it("keeps a missing-date movement separate from the preceding dated movement", async () => {
+    const runs = dateSummary(["02 Feb", "03 Feb"]).filter(
+      ({ x, y }) => !(x === 40 && y === 440),
+    );
+    const { rows } = await parse(makePdf(runs));
+    expect(rows).toHaveLength(2);
+    expect(rows.map(({ position }) => position)).toEqual([
+      { page: 1, row: 1 },
+      { page: 1, row: 2 },
+    ]);
+    expect(rows[0]!.postingDate).toBe("2036-02-02");
+    expect(rows[0]!.rawText).not.toContain("SYNTHETIC MOVEMENT 2");
+    expect(rows[1]!.rawPostingDate).toBeUndefined();
+    expect(rows[1]!.postingDate).toBeUndefined();
+    expect(rows[1]!.rawText).toContain("SYNTHETIC MOVEMENT 2");
+    expect(rows[1]!.rawText).not.toContain("SYNTHETIC MOVEMENT 1");
+    expect(rows[1]!.warnings.length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    [2036, true],
+    [2035, false],
+    [1900, false],
+    [2000, true],
+  ])("validates Gregorian leap day for %s", async (year, valid) => {
+    const { rows } = await parse(
+      makePdf(
+        dateSummary(
+          ["29 Feb"],
+          `01 Jan - 31 Dec ${year}`,
+          `${year} OPENING BALANCE`,
+        ),
+      ),
+    );
+    expect(rows[0]!.postingDate).toBe(valid ? `${year}-02-29` : undefined);
+    if (!valid) expect(rows[0]!.warnings.length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ["01 Jan - 31 Dec", "OPENING BALANCE"],
+    ["01 Jan - 31 Dec 2036", "2035 OPENING BALANCE"],
+    ["31 Feb - 31 Dec 2036", "2036 OPENING BALANCE"],
+    ["01 Dec - 31 Jan 2036", "2036 OPENING BALANCE"],
+  ])(
+    "leaves missing, conflicting, malformed, or cross-year context unresolved: %s",
+    async (period, opening) => {
+      const statement = await parse(
+        makePdf(dateSummary(["02 Feb"], period, opening)),
+      );
+      expect(statement.rows).toHaveLength(1);
+      expect(statement.rows[0]!.postingDate).toBeUndefined();
+      expect(
+        statement.rows[0]!.warnings.length + statement.warnings.length,
+      ).toBeGreaterThan(0);
+    },
+  );
+
+  it("leaves dates outside the evidenced period unresolved", async () => {
+    const { rows } = await parse(
+      makePdf(dateSummary(["01 Mar"], "01 Feb - 28 Feb 2036")),
+    );
+    expect(rows[0]!.rawPostingDate).toBe("01 Mar");
+    expect(rows[0]!.postingDate).toBeUndefined();
+    expect(rows[0]!.warnings.length).toBeGreaterThan(0);
+  });
+
+  it("excludes a date-like nonmovement entry without Debit/Credit source cells", async () => {
+    const runs = dateSummary(["02 Feb"]);
+    runs.push(
+      { text: "03 Feb", x: 40, y: 430 },
+      { text: "SYNTHETIC FOOTER", x: 110, y: 430 },
+    );
+    const { rows } = await parse(makePdf(runs));
+    expect(rows).toHaveLength(1);
+  });
+
+  it.each([
+    new Uint8Array([1, 2, 3]),
+    makePdf([{ text: "SYNTHETIC RECEIPT", x: 40, y: 720 }]),
+  ])(
+    "rejects unreadable or unsupported documents explicitly",
+    async (bytes) => {
+      await expect(parse(bytes)).rejects.toThrow();
+    },
+  );
 });
