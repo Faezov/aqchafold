@@ -14,8 +14,19 @@ export class TransactionRepository {
     const row = transactionToRow(transaction);
     this.database.transaction(
       (database) => {
-        this.assertReferences(database, row);
-        database.insert(transactions).values(row).run();
+        this.insertRow(database, row);
+      },
+      { behavior: "immediate" },
+    );
+  }
+
+  /** Insert the entire batch in supplied order, or roll back every new row. */
+  createMany(records: readonly Transaction[]): void {
+    if (records.length === 0) return;
+    this.database.transaction(
+      (database) => {
+        for (const transaction of records)
+          this.insertRow(database, transactionToRow(transaction));
       },
       { behavior: "immediate" },
     );
@@ -35,6 +46,17 @@ export class TransactionRepository {
       this.assertReferences(database, row);
       return transaction;
     });
+  }
+
+  private insertRow(
+    database: Pick<
+      ReturnType<typeof openLedgeraseDatabase>,
+      "select" | "insert"
+    >,
+    row: typeof transactions.$inferSelect,
+  ): void {
+    this.assertReferences(database, row);
+    database.insert(transactions).values(row).run();
   }
 
   private assertReferences(

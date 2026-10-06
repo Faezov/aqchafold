@@ -75,6 +75,7 @@ new MemberRepository(database).getById(id); // Member | undefined
 new AccountRepository(database).create(account); // void
 new AccountRepository(database).getById(id); // Account | undefined
 new TransactionRepository(database).create(transaction); // void
+new TransactionRepository(database).createMany(transactions); // void
 new TransactionRepository(database).getById(id); // Transaction | undefined
 new MerchantRepository(database).create(merchant); // void
 new MerchantRepository(database).getById(id); // Merchant | undefined
@@ -115,6 +116,20 @@ its primary currency must exactly match the Transaction currency. Supplied
 Merchant and Category references must each exist; closed Accounts and archived
 Categories remain valid references.
 
+`TransactionRepository.createMany(transactions: readonly Transaction[]): void`
+persists a batch of canonical Transactions in supplied order using one immediate
+database transaction. It uses the same domain revalidation, reference checks, and
+insertion logic as `create()`. An empty batch is a no-op with no database work.
+Any invalid record, missing reference, currency mismatch, duplicate supplied ID,
+or SQLite constraint failure throws and rolls back all new rows in that batch.
+Previously stored records remain unchanged; there is no skip, upsert, or update.
+Primary-key uniqueness enforces Transaction IDs and does not detect repeat imports.
+
+The caller passes converted canonical Transactions to this repository; the
+database API accepts no ParsedStatement or bank-specific evidence. CommBank
+parsing/conversion remains independent of SQLite and Drizzle. No Import repository
+or Transaction-to-Import linkage is introduced.
+
 Signed integer minor units, posting date, optional transaction date, origin, and
 raw descriptions are preserved without inference or normalization. Optional
 fields map between absent domain values and SQL NULL. Imported descriptions are
@@ -124,6 +139,14 @@ currency mismatches, or dangling references fail explicitly. Pure mapping tests
 cover these conversions. The development smoke check exercises SQLite round-trips
 and selected reference checks when run on a native runtime. No Transaction-to-Import
 relationship is introduced.
+
+Repository integration tests run the existing Expo Drizzle driver over Node's
+real in-memory SQLite engine through a small test-only synchronous client adapter.
+They apply the generated migration SQL with foreign keys enabled and exercise
+the synthetic CommBank fixture round-trip, single creation, and atomic rollback
+after later-record failures. These tests verify SQLite/Drizzle behavior; they do
+not replace the native Expo smoke check below. Node's SQLite module is used only
+in tests and adds no runtime dependency to the mobile application.
 
 Merchant creation validates through `Merchant` and inserts the supplied ID and
 display name exactly. Reads reconstruct through `Merchant`, rejecting invalid
