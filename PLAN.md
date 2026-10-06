@@ -114,7 +114,7 @@ CommBank PDF
 - [X] Convert parsed rows to canonical Transactions
 - [X] Persist imported transactions
 - [X] Detect duplicate imports
-- [ ] Add regression tests
+- [X] Add regression tests
 
 Milestone:
 A real CommBank statement can become correct local Ledgerase transactions.
