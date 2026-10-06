@@ -4,7 +4,7 @@ import {
   type PDFDocumentLoadingTask,
   type TextItem,
 } from "pdfjs-serverless";
-import { parseBrowserSummaryDates } from "./browser-summary-dates";
+import { parseBrowserSummaryRows } from "./browser-summary-rows";
 
 function matchesSummaryHeader(items: readonly TextItem[]): boolean {
   // The public reference has duplicated text layers and overlapping OCR runs.
@@ -101,7 +101,7 @@ export const commbankBrowserSummaryImporter: StatementImporter = {
       }
       if (!matchesSummaryHeader(pages[0]))
         throw new Error("Unsupported CommBank Transaction Summary layout.");
-      const result = parseBrowserSummaryDates(pages);
+      const result = parseBrowserSummaryRows(pages);
       return {
         parser: {
           id: commbankBrowserSummaryImporter.id,
@@ -110,7 +110,7 @@ export const commbankBrowserSummaryImporter: StatementImporter = {
         metadata: { rawText: "" },
         rows: result.rows,
         warnings: [
-          "Only transaction posting dates have been parsed; statement metadata and other row fields remain unresolved.",
+          "Only transaction posting dates and source descriptions have been parsed; statement metadata and other row fields remain unresolved.",
           ...result.warnings,
         ],
       };

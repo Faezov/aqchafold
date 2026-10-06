@@ -106,7 +106,7 @@ CommBank PDF
 - [X] Add anonymized CommBank fixture
 - [X] Detect CommBank browser Transaction Summary
 - [X] Parse transaction dates
-- [ ] Parse descriptions
+- [X] Parse descriptions
 - [ ] Parse amounts
 - [ ] Parse balances
 - [ ] Parse statement metadata

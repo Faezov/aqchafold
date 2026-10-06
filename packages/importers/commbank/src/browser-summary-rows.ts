@@ -69,6 +69,62 @@ function calendarDate(raw: string, year: number): string | undefined {
 
 type DateContext = { year: number; start: string; end: string };
 
+function description(
+  sourceLines: readonly (readonly TextItem[])[],
+): Pick<ParsedStatementRow, "rawDescription" | "warnings"> {
+  if (!sourceLines.length)
+    return {
+      warnings: [
+        "No source transaction description was established for this movement.",
+      ],
+    };
+  let duplicated = false;
+  let ambiguous = false;
+  const text = sourceLines.map((items) => {
+    const runs: TextItem[] = [];
+    for (const item of items) {
+      if (
+        runs.some(
+          (run) =>
+            run.str === item.str &&
+            Math.abs(run.transform[4] - item.transform[4]) <= 2,
+        )
+      ) {
+        duplicated = true;
+        continue;
+      }
+      if (
+        runs.some(
+          (run) =>
+            Math.min(
+              run.transform[4] + run.width,
+              item.transform[4] + item.width,
+            ) -
+              Math.max(run.transform[4], item.transform[4]) >
+            2,
+        )
+      )
+        ambiguous = true;
+      runs.push(item);
+    }
+    return runs.map((run) => run.str).join(" ");
+  });
+  if (ambiguous)
+    return {
+      warnings: [
+        "Overlapping Transaction-column text makes the source description ambiguous.",
+      ],
+    };
+  return {
+    rawDescription: text.join("\n"),
+    warnings: duplicated
+      ? [
+          "Identical overlapping Transaction-column text runs were collapsed for the description.",
+        ]
+      : [],
+  };
+}
+
 function dateContext(
   items: readonly TextItem[],
   openingYears: readonly number[],
@@ -103,13 +159,18 @@ function dateContext(
   return { year, start, end };
 }
 
-/** Bank-specific, date-only source observations; no financial values are interpreted. */
-export function parseBrowserSummaryDates(
+/** Bank-specific source dates and descriptions; no financial values are interpreted. */
+export function parseBrowserSummaryRows(
   pages: readonly (readonly TextItem[])[],
 ): Pick<ParsedStatement, "rows" | "warnings"> {
   const warnings: string[] = [];
   const openingYears: number[] = [];
-  const records: { page: number; dates: string[]; rawText: string }[] = [];
+  const records: {
+    page: number;
+    dates: string[];
+    rawText: string;
+    description: Pick<ParsedStatementRow, "rawDescription" | "warnings">;
+  }[] = [];
   const sourcePages = pages.map((items) => {
     const seen = new Set<string>();
     return items.filter((item) => {
@@ -155,6 +216,7 @@ export function parseBrowserSummaryDates(
       (credit.transform[4] + credit.width + balance.transform[4]) / 2;
     let dates: string[] = [];
     let text: string[] = [];
+    let descriptionLines: TextItem[][] = [];
     for (const line of lines(body)) {
       const opening = line.items.find(
         (item) =>
@@ -167,6 +229,7 @@ export function parseBrowserSummaryDates(
         if (year) openingYears.push(Number(year[1]));
         dates = [];
         text = [];
+        descriptionLines = [];
         continue;
       }
       const sourceDates = line.items
@@ -175,8 +238,15 @@ export function parseBrowserSummaryDates(
       if (sourceDates.length) {
         dates = [...new Set(sourceDates)];
         text = [];
+        descriptionLines = [];
       }
       text.push(line.items.map((item) => item.str).join(" "));
+      const descriptionItems = line.items.filter(
+        (item) =>
+          item.transform[4] >= transaction.transform[4] - 2 &&
+          item.transform[4] < movementLeft,
+      );
+      if (descriptionItems.length) descriptionLines.push(descriptionItems);
       // The demonstrated layout places movement cells on the final description line.
       // Presence locates a movement; neither Debit nor Credit values are interpreted.
       if (
@@ -191,9 +261,11 @@ export function parseBrowserSummaryDates(
         page: index + 1,
         dates,
         rawText: text.join("\n"),
+        description: description(descriptionLines),
       });
       dates = [];
       text = [];
+      descriptionLines = [];
     }
   }
   const context = dateContext(sourcePages[0], openingYears);
@@ -205,7 +277,7 @@ export function parseBrowserSummaryDates(
     const rawPostingDate = record.dates.length
       ? record.dates.join(" ")
       : undefined;
-    const rowWarnings: string[] = [];
+    const rowWarnings: string[] = [...record.description.warnings];
     let postingDate: string | undefined;
     if (rawPostingDate === undefined)
       rowWarnings.push(
@@ -234,6 +306,9 @@ export function parseBrowserSummaryDates(
     return {
       position: { page: record.page, row: index + 1 },
       rawText: record.rawText,
+      ...(record.description.rawDescription === undefined
+        ? {}
+        : { rawDescription: record.description.rawDescription }),
       ...(rawPostingDate === undefined ? {} : { rawPostingDate }),
       ...(postingDate === undefined ? {} : { postingDate }),
       warnings: rowWarnings,

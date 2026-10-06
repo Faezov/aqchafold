@@ -6,7 +6,7 @@ import { URL } from "node:url";
 import { deflateSync } from "node:zlib";
 import { getDocument, type TextItem } from "pdfjs-serverless";
 import { describe, expect, it, vi } from "vitest";
-import { parseBrowserSummaryDates } from "./browser-summary-dates";
+import { parseBrowserSummaryRows } from "./browser-summary-rows";
 import { commbankBrowserSummaryImporter } from "./browser-summary";
 
 const fixture = new Uint8Array(
@@ -25,7 +25,15 @@ const reference = JSON.parse(
     ),
     "utf8",
   ),
-) as { sourceRows: readonly { rawDate: string }[] };
+) as {
+  sourceRows: readonly {
+    rawDate: string;
+    rawDescription: string;
+    rawDebit: string;
+    rawCredit: string;
+    rawBalance: string;
+  }[];
+};
 
 type TextRun = { text: string; x: number; y: number };
 const header: TextRun[] = [
@@ -269,7 +277,6 @@ describe("CommBank browser Transaction Summary posting dates", () => {
     expect(statement.rows[3]!.rawText).toContain("$7,515.62");
     for (const row of statement.rows) {
       for (const field of [
-        "rawDescription",
         "rawTransactionDate",
         "transactionDate",
         "rawAmount",
@@ -299,9 +306,14 @@ describe("CommBank browser Transaction Summary posting dates", () => {
     expect(statement.rows.map(({ position }) => position.row)).toEqual([
       1, 2, 3,
     ]);
+    expect(statement.rows.map(({ rawDescription }) => rawDescription)).toEqual([
+      "SYNTHETIC MOVEMENT 1",
+      "SYNTHETIC MOVEMENT 2",
+      "SYNTHETIC MOVEMENT 3",
+    ]);
   });
 
-  it("preserves an extracted date run without trimming or collapsing its whitespace", async () => {
+  it("preserves extracted date and description runs without trimming or collapsing whitespace", async () => {
     const task = getDocument({
       data: new Uint8Array(fixture),
       verbosity: 0,
@@ -317,15 +329,24 @@ describe("CommBank browser Transaction Summary posting dates", () => {
       );
       const date = items.find((item) => item.str === "02 Feb");
       expect(date).toBeDefined();
+      const description = items.find(
+        (item) => item.str === "FIXTURE MARKET EXAMPLEVILLE",
+      );
+      expect(description).toBeDefined();
       // PDF.js coalesces drawing whitespace before yielding runs. This tests the
       // importer boundary directly, preserving the run supplied by extraction.
       const source = items.map((item) =>
-        item === date ? { ...item, str: " 02  Feb " } : item,
+        item === date
+          ? { ...item, str: " 02  Feb " }
+          : item === description
+            ? { ...item, str: " FIXTURE  MARKET EXAMPLEVILLE " }
+            : item,
       );
-      const { rows } = parseBrowserSummaryDates([source]);
+      const { rows } = parseBrowserSummaryRows([source]);
       expect(rows[0]!.rawPostingDate).toBe(" 02  Feb ");
       expect(rows[0]!.rawText).toContain(" 02  Feb ");
       expect(rows[0]!.postingDate).toBe("2036-02-02");
+      expect(rows[0]!.rawDescription).toBe(" FIXTURE  MARKET EXAMPLEVILLE ");
     } finally {
       await task.destroy();
     }
@@ -350,6 +371,9 @@ describe("CommBank browser Transaction Summary posting dates", () => {
     expect(statement.rows).toHaveLength(11);
     expect(statement.rows.map(({ rawPostingDate }) => rawPostingDate)).toEqual(
       reference.sourceRows.map(({ rawDate }) => rawDate),
+    );
+    expect(statement.rows.map(({ rawDescription }) => rawDescription)).toEqual(
+      reference.sourceRows.map((_, index) => `SYNTHETIC MOVEMENT ${index + 1}`),
     );
     expect(statement.warnings.join(" ")).toMatch(/overlapping/i);
   });
@@ -467,4 +491,71 @@ describe("CommBank browser Transaction Summary posting dates", () => {
       await expect(parse(bytes)).rejects.toThrow();
     },
   );
+});
+
+describe("CommBank browser Transaction Summary descriptions", () => {
+  it("preserves all eleven fixture descriptions without date or financial cells", async () => {
+    const statement = await parse(fixture);
+    expect(statement.rows).toHaveLength(11);
+    expect(statement.rows.map(({ rawDescription }) => rawDescription)).toEqual(
+      reference.sourceRows.map(({ rawDescription }) => rawDescription),
+    );
+    expect(statement.rows[3]!.rawDescription).toBe(
+      "Direct Debit SYNTHETIC UTILITIES\n91007382",
+    );
+    expect(statement.rows[3]!.sourceTransactionId).toBeUndefined();
+    for (const [index, row] of statement.rows.entries()) {
+      const source = reference.sourceRows[index];
+      for (const value of [
+        source.rawDate,
+        source.rawDebit,
+        source.rawCredit,
+        source.rawBalance,
+      ].filter(Boolean)) {
+        expect(row.rawDescription).not.toContain(value);
+      }
+    }
+  });
+
+  it.each(["absent", "empty"])(
+    "leaves an %s Transaction cell unresolved with a warning",
+    async (variant) => {
+      const runs = dateSummary(["02 Feb"]).filter(
+        ({ x, y }) => !(x === 110 && y === 460),
+      );
+      if (variant === "empty") runs.push({ text: "", x: 110, y: 460 });
+      const { rows } = await parse(makePdf(runs));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.rawDescription).toBeUndefined();
+      expect(rows[0]!.postingDate).toBe("2036-02-02");
+      expect(rows[0]!.warnings.join(" ")).toMatch(/description/i);
+      expect(rows[0]!.rawText).toContain("1.00");
+    },
+  );
+
+  it("leaves conflicting overlapping descriptions unresolved without changing row evidence", async () => {
+    const runs = dateSummary(["02 Feb"]);
+    runs.push({ text: "SYNTHETIC ALTERNATIVE", x: 110.5, y: 460.5 });
+    const { rows } = await parse(makePdf(runs));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.rawDescription).toBeUndefined();
+    expect(rows[0]!.postingDate).toBe("2036-02-02");
+    expect(rows[0]!.rawText).toContain("SYNTHETIC MOVEMENT 1");
+    expect(rows[0]!.rawText).toContain("SYNTHETIC ALTERNATIVE");
+    expect(rows[0]!.warnings.join(" ")).toMatch(/ambiguous|overlap/i);
+  });
+
+  it("collapses a slightly offset identical description layer deterministically", async () => {
+    const runs = dateSummary(["02 Feb"]);
+    const duplicate = { text: "SYNTHETIC MOVEMENT 1", x: 110.5, y: 460.5 };
+    for (const source of [
+      [...runs, duplicate],
+      [duplicate, ...runs],
+    ]) {
+      const { rows } = await parse(makePdf(source));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.rawDescription).toBe("SYNTHETIC MOVEMENT 1");
+      expect(rows[0]!.postingDate).toBe("2036-02-02");
+    }
+  });
 });

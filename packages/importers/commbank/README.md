@@ -40,14 +40,26 @@ The actual ignored government-hosted public reference also detects as 1. Its
 duplicated labels and overlapping OCR are covered by a synthetic regression;
 committed tests and mobile smoke use only synthetic inputs.
 
-`parse()` currently extracts transaction posting dates only. Positioned Date-column
-text starts a row; continuation lines remain in its `rawText` until a nonempty
-Debit/Credit cell identifies a movement. Values in those cells are not interpreted.
+`parse()` currently extracts transaction posting dates and source descriptions.
+Positioned Date-column text starts a row; continuation lines remain in its
+`rawText` until a nonempty Debit/Credit cell identifies a movement. Values in
+those cells are not interpreted.
 The demonstrated layout places them on the final description line. The explicit
 OPENING BALANCE entry and rows without movement evidence are excluded. Movements
 with missing dates remain separate unresolved rows. Pages and rows retain document
 order, with one-based page numbers and transaction ordinals; repeated dates remain
 distinct. Identical overlapping text runs are collapsed with a document warning.
+
+`rawDescription` uses Transaction-column runs from the same movement block,
+excluding Date, Debit, Credit, and Balance cells. Each extracted run is retained
+unchanged; runs on a line are joined with spaces and continuation lines with `\n`.
+Prefixes such as Credit, Refund, Transfer, and Direct Debit remain source text.
+Numeric continuation text remains part of the description, not a transaction ID.
+Missing descriptions and conflicting overlapping runs leave `rawDescription`
+absent with a row warning. Slightly offset identical overlapping copies collapse
+for description output only; `rawText` retains its existing behavior. Blank PDF
+text runs do not prove an established empty description, so no empty value is
+manufactured from missing evidence.
 
 A row's year is established only when the first-page `DD Mon - DD Mon YYYY` Period
 and the explicit opening-balance year agree on a valid same-year range. Gregorian
@@ -63,5 +75,5 @@ extraction can coalesce whitespace even with Unicode normalization disabled; the
 fields preserve extracted text rather than the PDF drawing instructions. Missing
 date evidence leaves `rawPostingDate` absent. The required metadata object currently
 contains only `rawText: ""`; a document warning makes the deferred extraction explicit.
-Descriptions, amounts, balances, statement metadata, reconciliation, canonical
-conversion, persistence, and importer selection remain deferred.
+Amounts, balances, statement metadata, merchant/category logic, reconciliation,
+canonical conversion, persistence, and importer selection remain deferred.
