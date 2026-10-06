@@ -138,8 +138,8 @@ leaves both boundaries absent; transaction dates never supply period boundaries.
 `currency`, `accountLabel`, `sourceKind`, and `sourceFormat` remain absent. The
 Statement label does not establish a value, and no structured customer identity
 is introduced. Dollar notation establishes no ISO currency, so all amount/balance
-Money fields remain unresolved. Money construction, merchant/category logic,
-canonical conversion, persistence, and importer selection remain deferred.
+Money fields remain unresolved in parser output. Merchant/category logic,
+persistence, and importer selection remain deferred.
 
 `reconciliation` records one source-balance check per movement, in document order,
 as `{ position, status }`, plus a header `closingBalance` check. Each status is
@@ -168,3 +168,47 @@ or computed balance. Ambiguous entries/cells, missing or malformed magnitudes,
 and unsafe evidence yield `unresolved`, while exact arithmetic disagreement yields
 `mismatch`. Nonverified checks add deterministic document warnings identifying
 the relation without transaction values; verified checks add no warnings.
+
+`convertCommBankBrowserSummaryToTransactions(statement, context)` is a separate,
+synchronous, all-or-nothing conversion step returning domain `Transaction`
+instances in document order. Its `CommBankTransactionConversionContext` requires
+an explicitly confirmed canonical `accountId`, `currency`,
+`currencyDecimalPlaces: 2`, and `createTransactionId(row)` callback. The caller
+must obtain the ID and currency from the confirmed Ledgerase Account, using its
+`id` and `primaryCurrency`; source Account Number, bank identity, `$`, and the
+environment never establish that association. Account does not currently store
+currency scale, so the caller must also confirm two minor-unit decimal places.
+Other currency scales are unsupported here; there is no currency default or
+registry.
+
+The source parser ID and version, reconciliation row count and ordered source
+positions, every movement check, and the closing check must match and be verified.
+Every row must have a valid established Gregorian posting date, established raw description
+(including a legitimate `""`), and unambiguous valid Debit/Credit evidence. The
+same strict signed integer validator used for reconciliation constructs Money in
+the confirmed currency: Debit is negative, Credit positive, and zero is preserved.
+Any explicit source currency must agree with the confirmed currency.
+
+Verified statuses alone do not authorize conversion: current raw evidence must
+still reconcile exactly. Each signed Debit/Credit movement is checked against
+the current opening balance for the first row, or the preceding row's current
+source running balance for later rows. The final source running balance must
+equal the current header closing balance. The parser and converter share strict
+dollar-prefixed balance validation and safe integer arithmetic. Missing,
+malformed, ambiguous, unsafe, or changed evidence that no longer reconciles
+refuses the entire conversion before any ID callback runs. No computed balance
+is carried forward, no tolerance is used, and source evidence remains unchanged.
+
+All source rows are validated before requesting IDs. The callback supplies one
+nonblank canonical ID per row; IDs must be distinct within the returned batch.
+Repeated movements remain distinct, and no random ID or duplicate-import policy
+is introduced. A refusal throws a deterministic error identifying the field and
+source position where applicable, without source values. No partial Transaction
+array is returned, including when the ID callback fails; callback side effects
+cannot be rolled back, so the caller should keep ID generation free of writes.
+
+Transactions have `origin: "imported"`, exact parsed posting dates/descriptions,
+and the confirmed Account ID. An independently established valid transaction date
+is retained; merchant/category relationships stay absent. The statement, warnings,
+raw evidence, and unresolved parser Money fields remain unchanged. No records are
+persisted and no cross-import identity matching is performed.

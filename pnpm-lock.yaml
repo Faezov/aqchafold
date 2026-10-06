@@ -250,6 +250,9 @@ importers:
 
   packages/importers/commbank:
     dependencies:
+      '@aqchafold/domain':
+        specifier: workspace:*
+        version: link:../../domain
       '@aqchafold/importers-core':
         specifier: workspace:*
         version: link:../core

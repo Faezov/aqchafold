@@ -5,6 +5,7 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "dependencies": {
+    "@aqchafold/domain": "workspace:*",
     "@aqchafold/importers-core": "workspace:*",
     "pdfjs-serverless": "1.3.1"
   },

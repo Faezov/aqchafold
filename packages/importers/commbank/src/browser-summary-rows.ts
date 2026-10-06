@@ -71,6 +71,18 @@ function calendarDate(raw: string, year: number): string | undefined {
   return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
+/** Validate interpreted dates using the same Gregorian rules as source dates. */
+export function isGregorianCalendarDate(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const month = months[Number(match[2]) - 1];
+  return (
+    month !== undefined &&
+    calendarDate(`${match[3]} ${month}`, Number(match[1])) === value
+  );
+}
+
 type DateContext = { year: number; start: string; end: string };
 
 function description(
@@ -131,9 +143,33 @@ function description(
 
 /** Internal two-decimal magnitude parser; converts integer digits, never decimal floats. */
 export function parseDecimalMagnitudeMinor(raw: string): number | undefined {
-  if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)\.\d{2}$/.test(raw)) return;
+  const match = /^(?:\d+|\d{1,3}(?:,\d{3})+)\.\d{2}$/.exec(raw);
+  // JavaScript's $ anchor can match before a final line terminator.
+  if (match?.[0] !== raw) return;
   const minor = Number(raw.replace(/[,.]/g, ""));
   return Number.isSafeInteger(minor) ? minor : undefined;
+}
+
+/** Both source cells must be established, with exactly one valid magnitude. */
+export function parseSignedDebitCreditMinor(
+  rawDebit: string | undefined,
+  rawCredit: string | undefined,
+): number | undefined {
+  if (typeof rawDebit !== "string" || typeof rawCredit !== "string") return;
+  if (rawDebit === "" && rawCredit !== "")
+    return parseDecimalMagnitudeMinor(rawCredit);
+  if (rawCredit === "" && rawDebit !== "") {
+    const magnitude = parseDecimalMagnitudeMinor(rawDebit);
+    return magnitude === undefined ? undefined : -magnitude;
+  }
+}
+
+/** Source dollar notation only; the symbol does not establish an ISO currency. */
+export function parseDollarBalanceMinor(
+  raw: string | undefined,
+): number | undefined {
+  if (typeof raw !== "string" || !raw.startsWith("$")) return;
+  return parseDecimalMagnitudeMinor(raw.slice(1));
 }
 
 function amountCells(
@@ -188,12 +224,7 @@ function amountCells(
     warnings.push(
       "Exactly one Debit or Credit cell must be populated for a movement.",
     );
-  const signedMinor =
-    rawCredit === "" && debitCell.minor !== undefined
-      ? -debitCell.minor
-      : rawDebit === "" && creditCell.minor !== undefined
-        ? creditCell.minor
-        : undefined;
+  const signedMinor = parseSignedDebitCreditMinor(rawDebit, rawCredit);
   return { rawDebit, rawCredit, warnings, signedMinor };
 }
 
@@ -232,9 +263,7 @@ function balanceCell(items: readonly TextItem[], name: string) {
     ? unique.map((item) => item.str).join(" ")
     : undefined;
   const minor =
-    unique.length === 1 && rawValue?.startsWith("$")
-      ? parseDecimalMagnitudeMinor(rawValue.slice(1))
-      : undefined;
+    unique.length === 1 ? parseDollarBalanceMinor(rawValue) : undefined;
   if (unique.length < items.length)
     warnings.push(`Identical overlapping ${name} text runs were collapsed.`);
   if (!unique.length) warnings.push(`The ${name} value is missing.`);
