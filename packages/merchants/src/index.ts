@@ -1,3 +1,5 @@
+export { resolveMerchantAlias } from "./aliases";
+export type { MerchantAlias } from "./aliases";
 export type {
   MerchantDescriptionNormalizer,
   MerchantNormalizationResult,

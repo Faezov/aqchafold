@@ -154,7 +154,7 @@ raw description
 - [X] Normalize payment processor prefixes
 - [ ] Normalize obvious location/noise suffixes
 - [X] Preserve original transaction description
-- [ ] Implement merchant aliases
+- [X] Implement merchant aliases
 - [ ] Implement persistent merchant rules
 - [ ] Add confirmed / suggested / unknown status
 - [ ] Ensure user-confirmed rules have highest priority

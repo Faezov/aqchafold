@@ -1,7 +1,7 @@
 # packages/merchants
 
 Bank-, database-, and platform-independent merchant-resolution logic for Ledgerase.
-The package defines a textual normalization contract and its first production step.
+The package defines textual normalization and explicit exact alias lookup.
 
 `MerchantDescriptionNormalizer` is a pure, deterministic, synchronous callable:
 
@@ -55,9 +55,34 @@ second wrapper. The remaining case, accents, punctuation, and location/suffix
 text are preserved. For example, ` SQ *EXAMPLE SHOP Sydney NS AUS ` yields
 `EXAMPLE SHOP Sydney NS AUS`, still only a textual candidate.
 
-Tests check the public contract and production behavior using synthetic
-descriptions. Location/noise suffix removal, identity resolution, aliases,
-rules, category assignment, persistence, and UI remain separate later tasks.
+`MerchantAlias` is an explicit identity mapping with readonly
+`normalizedDescription: string` and `merchantId: string` fields. Aliases operate
+after textual normalization, not as another normalization rule:
+
+```ts
+resolveMerchantAlias(
+  normalizedDescription: string,
+  aliases: readonly MerchantAlias[],
+): string | undefined
+```
+
+Lookup is pure, synchronous, deterministic, and uses exact, case-sensitive string
+equality. It does not trim, normalize Unicode, or perform partial/fuzzy matching.
+Empty or unmatched descriptions return `undefined`. Both alias fields must be
+nonblank strings; whitespace is checked only for validation and never removed.
+The whole supplied collection is validated before lookup, even for empty queries:
+invalid fields throw `TypeError`, identical mappings are tolerated, and one exact
+description mapped to different IDs throws `Error` regardless of ordering or
+lookup text. Ambiguous mappings cannot silently select an ID.
+
+The returned opaque ID comes only from the caller's explicit mapping; normalization
+alone does not identify a Merchant. Lookup does not verify that ID against a
+repository or change Transactions, categories, or confirmation status. Aliases
+are not persisted yet, and no built-in merchant catalog or aliases exist.
+
+Tests check the public contracts and production behavior using synthetic
+descriptions. Location/noise suffix removal, broader identity resolution, rules,
+category assignment, persistence, and UI remain separate later tasks.
 
 There are currently no production location/noise suffix-removal rules. The
 [tracked CommBank reference](../../fixtures/bank-statements/commbank/browser-summary-01.reference.json)
