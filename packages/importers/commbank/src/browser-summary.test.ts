@@ -1323,3 +1323,440 @@ describe("CommBank browser Transaction Summary metadata evidence", () => {
     }
   });
 });
+
+function reconciledSummary(): TextRun[] {
+  return [
+    ...dateSummary(["02 Feb", "03 Feb", "04 Feb"]),
+    { text: "$97.00", x: 490, y: 600 },
+    { text: "$99.00", x: 490, y: 460 },
+    { text: "$98.00", x: 490, y: 440 },
+    { text: "$97.00", x: 490, y: 420 },
+  ];
+}
+
+async function fixtureTextItems(): Promise<TextItem[]> {
+  const task = getDocument({
+    data: new Uint8Array(fixture),
+    verbosity: 0,
+    disableFontFace: true,
+    useSystemFonts: false,
+  });
+  try {
+    const document = await task.promise;
+    const page = await document.getPage(1);
+    const content = await page.getTextContent({ disableNormalization: true });
+    return content.items.filter((item): item is TextItem => "str" in item);
+  } finally {
+    await task.destroy();
+  }
+}
+
+describe("CommBank browser Transaction Summary source running-balance reconciliation", () => {
+  it("verifies all eleven fixture equations and explicit closing agreement without constructing Money", async () => {
+    const statement = await parse(fixture);
+    expect(statement.reconciliation).toEqual({
+      rows: statement.rows.map(({ position }) => ({
+        position,
+        status: "verified",
+      })),
+      closingBalance: "verified",
+    });
+    expect(statement.rows).toHaveLength(11);
+    for (const [index, row] of statement.rows.entries()) {
+      const source = reference.sourceRows[index];
+      expect(row.rawPostingDate).toBe(source.rawDate);
+      expect(row.rawDescription).toBe(source.rawDescription);
+      expect(row.rawDebit).toBe(source.rawDebit);
+      expect(row.rawCredit).toBe(source.rawCredit);
+      expect(row.rawBalance).toBe(source.rawBalance);
+      expect(row.warnings).toEqual([]);
+      expect(row.amount).toBeUndefined();
+      expect(row.balance).toBeUndefined();
+    }
+    expect(statement.openingBalance?.value).toBeUndefined();
+    expect(statement.closingBalance?.value).toBeUndefined();
+    expect(statement.metadata.currency).toBeUndefined();
+  });
+
+  it("subtracts source Debit and adds source Credit with exact decimal hundredths", async () => {
+    const runs = reconciledSummary();
+    runs.find(({ x, y }) => x === 330 && y === 460)!.text = "10.00";
+    const credit = runs.find(({ x, y }) => x === 330 && y === 440)!;
+    credit.x = 410;
+    credit.text = "5.25";
+    for (const [y, value] of [
+      [460, "$90.00"],
+      [440, "$95.25"],
+      [420, "$94.25"],
+      [600, "$94.25"],
+    ] as const)
+      runs.find(({ x, y: sourceY }) => x === 490 && sourceY === y)!.text =
+        value;
+    const statement = await parse(makePdf(runs));
+    expect(statement.reconciliation?.rows.map(({ status }) => status)).toEqual([
+      "verified",
+      "verified",
+      "verified",
+    ]);
+    expect(statement.reconciliation?.closingBalance).toBe("verified");
+    expect(
+      statement.rows.map(({ rawDebit, rawCredit }) => [rawDebit, rawCredit]),
+    ).toEqual([
+      ["10.00", ""],
+      ["", "5.25"],
+      ["1.00", ""],
+    ]);
+  });
+
+  it("treats valid zero magnitudes as established numeric evidence for Credit and Debit relations", async () => {
+    const runs = reconciledSummary();
+    for (const run of runs) {
+      if (run.x === 490 && run.text.startsWith("$")) run.text = "$0.00";
+      if (run.x === 330 && run.y < 500) run.text = "0.00";
+    }
+    runs.find(({ x, y }) => x === 330 && y === 460)!.x = 410;
+    const statement = await parse(makePdf(runs));
+    expect(statement.reconciliation?.rows.map(({ status }) => status)).toEqual([
+      "verified",
+      "verified",
+      "verified",
+    ]);
+    expect(statement.reconciliation?.closingBalance).toBe("verified");
+    expect(
+      statement.rows.map(({ rawDebit, rawCredit, rawBalance }) => [
+        rawDebit,
+        rawCredit,
+        rawBalance,
+      ]),
+    ).toEqual([
+      ["", "0.00", "$0.00"],
+      ["0.00", "", "$0.00"],
+      ["0.00", "", "$0.00"],
+    ]);
+    for (const row of statement.rows) {
+      expect(row.amount).toBeUndefined();
+      expect(row.balance).toBeUndefined();
+    }
+    expect(statement.openingBalance?.rawValue).toBe("$0.00");
+    expect(statement.closingBalance?.rawValue).toBe("$0.00");
+    expect(statement.openingBalance?.value).toBeUndefined();
+    expect(statement.closingBalance?.value).toBeUndefined();
+    expect(statement.metadata.currency).toBeUndefined();
+  });
+
+  it("reports a one-cent movement mismatch without repairing source values or cascading into later rows", async () => {
+    const runs = reconciledSummary();
+    runs.find(({ x, y }) => x === 330 && y === 460)!.text = "1.01";
+    const statement = await parse(makePdf(runs));
+    expect(statement.reconciliation?.rows.map(({ status }) => status)).toEqual([
+      "mismatch",
+      "verified",
+      "verified",
+    ]);
+    expect(statement.reconciliation?.closingBalance).toBe("verified");
+    expect(statement.rows[0]!.rawDebit).toBe("1.01");
+    expect(statement.rows[0]!.rawBalance).toBe("$99.00");
+    expect(statement.rows[0]!.rawText).toContain("1.01 $99.00");
+    expect(statement.rows[0]!.warnings).toEqual([]);
+    expect(statement.warnings.join(" ")).toMatch(
+      /running balance reconciliation mismatch at page 1, row 1/i,
+    );
+    expect(statement.rows[1]!.warnings).toEqual([]);
+  });
+
+  it("uses each previous source balance after a changed balance, then recovers when source equations agree", async () => {
+    const runs = reconciledSummary();
+    runs.find(({ x, y }) => x === 490 && y === 460)!.text = "$99.01";
+    const statement = await parse(makePdf(runs));
+    expect(statement.reconciliation?.rows.map(({ status }) => status)).toEqual([
+      "mismatch",
+      "mismatch",
+      "verified",
+    ]);
+    expect(statement.rows[0]!.rawBalance).toBe("$99.01");
+    expect(statement.rows[1]!.rawBalance).toBe("$98.00");
+    expect(statement.reconciliation?.closingBalance).toBe("verified");
+  });
+
+  it.each(["missing", "malformed", "both populated", "conflicting overlap"])(
+    "leaves %s movement evidence unresolved without losing the next source baseline",
+    async (variant) => {
+      let runs = reconciledSummary();
+      if (variant === "missing")
+        runs = runs.filter(({ x, y }) => !(x === 330 && y === 460));
+      else if (variant === "malformed")
+        runs.find(({ x, y }) => x === 330 && y === 460)!.text = "1.2";
+      else
+        runs.push({
+          text: "2.00",
+          x: variant === "both populated" ? 410 : 330.5,
+          y: variant === "both populated" ? 460 : 460.5,
+        });
+      const statement = await parse(makePdf(runs));
+      expect(
+        statement.reconciliation?.rows.map(({ status }) => status),
+      ).toEqual(["unresolved", "verified", "verified"]);
+      expect(statement.reconciliation?.closingBalance).toBe("verified");
+      expect(statement.rows[0]!.rawBalance).toBe("$99.00");
+      expect(statement.rows[0]!.warnings.length).toBeGreaterThan(0);
+      expect(statement.rows[1]!.warnings).toEqual([]);
+    },
+  );
+
+  it.each(["missing", "malformed", "conflicting overlap"])(
+    "leaves %s source balance evidence and its next equation unresolved, then recovers",
+    async (variant) => {
+      let runs = reconciledSummary();
+      if (variant === "missing")
+        runs = runs.filter(({ x, y }) => !(x === 490 && y === 460));
+      else if (variant === "malformed")
+        runs.find(({ x, y }) => x === 490 && y === 460)!.text = "$99.0";
+      else runs.push({ text: "$99.01", x: 490.5, y: 460.5 });
+      const statement = await parse(makePdf(runs));
+      expect(
+        statement.reconciliation?.rows.map(({ status }) => status),
+      ).toEqual(["unresolved", "unresolved", "verified"]);
+      expect(statement.reconciliation?.closingBalance).toBe("verified");
+      expect(statement.rows[0]!.warnings.length).toBeGreaterThan(0);
+      expect(statement.rows[1]!.warnings).toEqual([]);
+      expect(statement.warnings.join(" ")).toMatch(
+        /running balance reconciliation unresolved at page 1, row 2/i,
+      );
+      expect(statement.rows[2]!.warnings).toEqual([]);
+    },
+  );
+
+  it.each(["missing", "multiple entries", "conflicting overlap"])(
+    "does not select %s opening evidence as the first baseline",
+    async (variant) => {
+      let runs = reconciledSummary();
+      if (variant === "missing") runs = runs.filter(({ y }) => y !== 480);
+      else if (variant === "multiple entries")
+        runs.push(
+          { text: "02 Jan", x: 40, y: 470 },
+          { text: "2036 OPENING BALANCE", x: 110, y: 470 },
+          { text: "$100.00", x: 490, y: 470 },
+        );
+      else runs.push({ text: "$101.00", x: 490.5, y: 480.5 });
+      const statement = await parse(makePdf(runs));
+      expect(
+        statement.reconciliation?.rows.map(({ status }) => status),
+      ).toEqual(["unresolved", "verified", "verified"]);
+      expect(statement.reconciliation?.closingBalance).toBe("verified");
+      expect(statement.warnings.join(" ")).toMatch(
+        /running balance reconciliation unresolved at page 1, row 1/i,
+      );
+      if (variant !== "missing")
+        expect(statement.rows[0]!.warnings).toEqual([]);
+    },
+  );
+
+  it("leaves conflicting opening labels unresolved while the next source balance can verify", async () => {
+    const runs = reconciledSummary();
+    runs.push({ text: "2035 OPENING BALANCE", x: 110.5, y: 480.5 });
+    const statement = await parse(makePdf(runs));
+    expect(statement.openingBalance?.rawValue).toBe("$100.00");
+    expect(statement.openingBalance?.rawText).toContain("2036 OPENING BALANCE");
+    expect(statement.openingBalance?.rawText).toContain("2035 OPENING BALANCE");
+    expect(statement.reconciliation?.rows.map(({ status }) => status)).toEqual([
+      "unresolved",
+      "verified",
+      "verified",
+    ]);
+    expect(statement.rows[0]!.rawBalance).toBe("$99.00");
+    expect(statement.rows[1]!.rawBalance).toBe("$98.00");
+    expect(statement.reconciliation?.closingBalance).toBe("verified");
+    expect(statement.warnings.join(" ")).toMatch(
+      /running balance reconciliation unresolved at page 1, row 1/i,
+    );
+  });
+
+  it("does not use an opening entry appearing after the first movement as a retrospective baseline", async () => {
+    const runs = reconciledSummary().map((run) =>
+      run.y === 480 ? { ...run, y: 450 } : run,
+    );
+    const statement = await parse(makePdf(runs));
+    expect(statement.reconciliation?.rows.map(({ status }) => status)).toEqual([
+      "unresolved",
+      "verified",
+      "verified",
+    ]);
+    expect(statement.openingBalance?.rawValue).toBe("$100.00");
+    expect(statement.reconciliation?.closingBalance).toBe("verified");
+  });
+
+  it.each(["missing", "multiple entries", "conflicting overlap"])(
+    "leaves %s closing evidence unresolved while row equations remain verified",
+    async (variant) => {
+      let runs = reconciledSummary();
+      if (variant === "missing")
+        runs = runs.filter(({ x, y }) => !(x === 490 && y === 600));
+      else if (variant === "multiple entries")
+        runs.push(
+          { text: "Closing Balance", x: 300, y: 590 },
+          { text: "$97.00", x: 490, y: 590 },
+        );
+      else runs.push({ text: "$97.01", x: 490.5, y: 600.5 });
+      const statement = await parse(makePdf(runs));
+      expect(
+        statement.reconciliation?.rows.map(({ status }) => status),
+      ).toEqual(["verified", "verified", "verified"]);
+      expect(statement.reconciliation?.closingBalance).toBe("unresolved");
+      expect(statement.warnings.join(" ")).toMatch(/closing/i);
+    },
+  );
+
+  it("reports a one-cent header closing mismatch without changing verified row equations", async () => {
+    const runs = reconciledSummary();
+    runs.find(({ x, y }) => x === 490 && y === 600)!.text = "$97.01";
+    const statement = await parse(makePdf(runs));
+    expect(statement.reconciliation?.rows.map(({ status }) => status)).toEqual([
+      "verified",
+      "verified",
+      "verified",
+    ]);
+    expect(statement.reconciliation?.closingBalance).toBe("mismatch");
+    expect(statement.closingBalance?.rawValue).toBe("$97.01");
+    expect(statement.rows[2]!.rawBalance).toBe("$97.00");
+    expect(statement.warnings.join(" ")).toMatch(
+      /closing balance reconciliation mismatch/i,
+    );
+    expect(statement.rows.every(({ warnings }) => warnings.length === 0)).toBe(
+      true,
+    );
+  });
+
+  it("continues verifying numerically identical shifted overlays after deterministic source collapse", async () => {
+    const runs = reconciledSummary();
+    runs.push(
+      { text: "$100.00", x: 490.5, y: 480.5 },
+      { text: "1.00", x: 330.5, y: 460.5 },
+      { text: "$99.00", x: 490.5, y: 460.5 },
+      { text: "$97.00", x: 490.5, y: 600.5 },
+    );
+    const statement = await parse(makePdf(runs));
+    expect(statement.reconciliation?.rows.map(({ status }) => status)).toEqual([
+      "verified",
+      "verified",
+      "verified",
+    ]);
+    expect(statement.reconciliation?.closingBalance).toBe("verified");
+    expect(statement.rows[0]!.rawBalance).toBe("$99.00");
+    expect(statement.rows[0]!.rawDebit).toBe("1.00");
+    expect(statement.rows[0]!.rawText.match(/\$99\.00/g)).toHaveLength(2);
+  });
+
+  it("does not block independent numeric agreement on unresolved date, description, or account metadata", async () => {
+    const runs = reconciledSummary().filter(
+      ({ x, y }) => !((x === 40 || x === 110) && y === 460),
+    );
+    const statement = await parse(makePdf(runs));
+    expect(statement.rows[0]!.postingDate).toBeUndefined();
+    expect(statement.rows[0]!.rawDescription).toBeUndefined();
+    expect(statement.metadata.accountIdentifier).toBeUndefined();
+    expect(statement.reconciliation?.rows.map(({ status }) => status)).toEqual([
+      "verified",
+      "verified",
+      "verified",
+    ]);
+    expect(statement.reconciliation?.closingBalance).toBe("verified");
+  });
+
+  it.each(["Debit", "running balance", "opening balance", "closing balance"])(
+    "does not use unsafe %s magnitudes in an equation",
+    async (variant) => {
+      const runs = reconciledSummary();
+      const y =
+        variant === "opening balance"
+          ? 480
+          : variant === "closing balance"
+            ? 600
+            : 460;
+      const x = variant === "Debit" ? 330 : 490;
+      runs.find((run) => run.x === x && run.y === y)!.text =
+        `${variant === "Debit" ? "" : "$"}90071992547409.92`;
+      const statement = await parse(makePdf(runs));
+      expect(
+        statement.reconciliation?.rows.map(({ status }) => status),
+      ).toEqual(
+        variant === "running balance"
+          ? ["unresolved", "unresolved", "verified"]
+          : variant === "closing balance"
+            ? ["verified", "verified", "verified"]
+            : ["unresolved", "verified", "verified"],
+      );
+      expect(statement.reconciliation?.closingBalance).toBe(
+        variant === "closing balance" ? "unresolved" : "verified",
+      );
+    },
+  );
+
+  it("leaves a credit sum exceeding the safe integer range unresolved instead of comparing rounded values", async () => {
+    const runs = reconciledSummary();
+    runs.find(({ x, y }) => x === 490 && y === 480)!.text =
+      "$90071992547409.91";
+    const credit = runs.find(({ x, y }) => x === 330 && y === 460)!;
+    credit.text = "0.01";
+    credit.x = 410;
+    for (const [y, text] of [
+      [460, "$90071992547409.91"],
+      [440, "$90071992547408.91"],
+      [420, "$90071992547407.91"],
+      [600, "$90071992547407.91"],
+    ] as const)
+      runs.find(({ x, y: sourceY }) => x === 490 && sourceY === y)!.text = text;
+    const statement = await parse(makePdf(runs));
+    expect(statement.reconciliation?.rows.map(({ status }) => status)).toEqual([
+      "unresolved",
+      "verified",
+      "verified",
+    ]);
+    expect(statement.reconciliation?.closingBalance).toBe("verified");
+    expect(statement.rows[0]!.warnings).toEqual([]);
+    expect(statement.warnings.join(" ")).toMatch(/safe|overflow|range/i);
+    expect(statement.rows[0]!.rawCredit).toBe("0.01");
+    expect(statement.rows[0]!.rawBalance).toBe("$90071992547409.91");
+  });
+
+  it("leaves closing agreement unresolved when no transaction row supplies a final running balance", async () => {
+    const runs = dateSummary([]);
+    runs.push({ text: "$100.00", x: 490, y: 600 });
+    const statement = await parse(makePdf(runs));
+    expect(statement.rows).toEqual([]);
+    expect(statement.reconciliation).toEqual({
+      rows: [],
+      closingBalance: "unresolved",
+    });
+  });
+
+  it("leaves closing agreement unresolved when a trailing unsupported page may contain later movements", async () => {
+    const statement = parseBrowserSummaryRows([await fixtureTextItems(), []]);
+    expect(statement.reconciliation?.rows.map(({ status }) => status)).toEqual(
+      Array(11).fill("verified"),
+    );
+    expect(statement.reconciliation?.closingBalance).toBe("unresolved");
+    expect(statement.warnings.join(" ")).toMatch(/page 2|partial|coverage/i);
+  });
+
+  it("does not bridge an unsupported middle page, then resumes from new source balances", async () => {
+    const items = await fixtureTextItems();
+    const opening = items.find((item) => item.str === "2036 OPENING BALANCE");
+    expect(opening).toBeDefined();
+    const laterPage = items.filter(
+      (item) => Math.abs(item.transform[5] - opening!.transform[5]) > 2,
+    );
+    const statement = parseBrowserSummaryRows([items, [], laterPage]);
+    expect(statement.rows).toHaveLength(22);
+    expect(
+      statement.reconciliation?.rows.slice(0, 11).map(({ status }) => status),
+    ).toEqual(Array(11).fill("verified"));
+    expect(
+      statement.reconciliation?.rows.slice(11).map(({ status }) => status),
+    ).toEqual(["unresolved", ...Array(10).fill("verified")]);
+    expect(statement.reconciliation?.rows[11]!.position).toEqual({
+      page: 3,
+      row: 12,
+    });
+    expect(statement.reconciliation?.closingBalance).toBe("verified");
+  });
+});

@@ -2,7 +2,9 @@ import type {
   ParsedStatement,
   ParsedStatementBalance,
   ParsedStatementMetadata,
+  ParsedStatementReconciliation,
   ParsedStatementRow,
+  ReconciliationStatus,
 } from "@aqchafold/importers-core";
 import type { TextItem } from "pdfjs-serverless";
 
@@ -138,7 +140,9 @@ function amountCells(
   items: readonly TextItem[],
   debit: TextItem,
   credit: TextItem,
-): Pick<ParsedStatementRow, "rawDebit" | "rawCredit" | "warnings"> {
+): Pick<ParsedStatementRow, "rawDebit" | "rawCredit" | "warnings"> & {
+  signedMinor?: number;
+} {
   const boundary = (debit.transform[4] + debit.width + credit.transform[4]) / 2;
   const creditRight = credit.transform[4] + credit.width;
   const creditItems = items.filter(
@@ -147,7 +151,7 @@ function amountCells(
       Math.abs(item.transform[4] + item.width - creditRight) <= 2,
   );
   const warnings: string[] = [];
-  const sourceCell = (runs: readonly TextItem[], name: string): string => {
+  const sourceCell = (runs: readonly TextItem[], name: string) => {
     const unique = runs.filter(
       (item, index) =>
         !runs
@@ -159,28 +163,38 @@ function amountCells(
           ),
     );
     const raw = unique.map((item) => item.str).join(" ");
+    const minor =
+      unique.length === 1 ? parseDecimalMagnitudeMinor(raw) : undefined;
     if (unique.length < runs.length)
       warnings.push(`Identical overlapping ${name} text runs were collapsed.`);
     if (unique.length > 1)
       warnings.push(
         `The ${name} cell has multiple text runs; its magnitude is ambiguous.`,
       );
-    else if (raw && parseDecimalMagnitudeMinor(raw) === undefined)
+    else if (raw && minor === undefined)
       warnings.push(
         `The ${name} cell is not a valid safe two-decimal magnitude.`,
       );
-    return raw;
+    return { raw, minor };
   };
-  const rawDebit = sourceCell(
+  const debitCell = sourceCell(
     items.filter((item) => !creditItems.includes(item)),
     "Debit",
   );
-  const rawCredit = sourceCell(creditItems, "Credit");
+  const creditCell = sourceCell(creditItems, "Credit");
+  const rawDebit = debitCell.raw;
+  const rawCredit = creditCell.raw;
   if (Boolean(rawDebit) === Boolean(rawCredit))
     warnings.push(
       "Exactly one Debit or Credit cell must be populated for a movement.",
     );
-  return { rawDebit, rawCredit, warnings };
+  const signedMinor =
+    rawCredit === "" && debitCell.minor !== undefined
+      ? -debitCell.minor
+      : rawDebit === "" && creditCell.minor !== undefined
+        ? creditCell.minor
+        : undefined;
+  return { rawDebit, rawCredit, warnings, signedMinor };
 }
 
 function balanceRuns(
@@ -217,6 +231,10 @@ function balanceCell(items: readonly TextItem[], name: string) {
   const rawValue = unique.length
     ? unique.map((item) => item.str).join(" ")
     : undefined;
+  const minor =
+    unique.length === 1 && rawValue?.startsWith("$")
+      ? parseDecimalMagnitudeMinor(rawValue.slice(1))
+      : undefined;
   if (unique.length < items.length)
     warnings.push(`Identical overlapping ${name} text runs were collapsed.`);
   if (!unique.length) warnings.push(`The ${name} value is missing.`);
@@ -224,15 +242,11 @@ function balanceCell(items: readonly TextItem[], name: string) {
     warnings.push(
       `The ${name} has multiple text runs; its value is ambiguous.`,
     );
-  else if (
-    rawValue !== undefined &&
-    (!rawValue.startsWith("$") ||
-      parseDecimalMagnitudeMinor(rawValue.slice(1)) === undefined)
-  )
+  else if (minor === undefined)
     warnings.push(
       `The ${name} is not valid dollar-prefixed two-decimal notation.`,
     );
-  return { rawValue, warnings };
+  return { rawValue, warnings, minor };
 }
 
 function dateContext(
@@ -399,7 +413,12 @@ export function parseBrowserSummaryRows(
   pages: readonly (readonly TextItem[])[],
 ): Pick<
   ParsedStatement,
-  "metadata" | "rows" | "warnings" | "openingBalance" | "closingBalance"
+  | "metadata"
+  | "rows"
+  | "warnings"
+  | "openingBalance"
+  | "closingBalance"
+  | "reconciliation"
 > {
   const warnings: string[] = [];
   const openingYears: number[] = [];
@@ -407,6 +426,7 @@ export function parseBrowserSummaryRows(
     rawText: string;
     dates: string[];
     ambiguousLabel: boolean;
+    precedingMovements: number;
     position: { page: number; row: number };
     cell: ReturnType<typeof balanceCell>;
   }[] = [];
@@ -415,9 +435,11 @@ export function parseBrowserSummaryRows(
     dates: string[];
     rawText: string;
     description: Pick<ParsedStatementRow, "rawDescription" | "warnings">;
-    amounts: Pick<ParsedStatementRow, "rawDebit" | "rawCredit" | "warnings">;
+    amounts: ReturnType<typeof amountCells>;
     balance: ReturnType<typeof balanceCell>;
+    previousBalanceKnown: boolean;
   }[] = [];
+  let sourceGap = false;
   const sourcePages = pages.map((items) => {
     const seen = new Set<string>();
     return items.filter((item) => {
@@ -446,6 +468,7 @@ export function parseBrowserSummaryRows(
   for (const [index, items] of sourcePages.entries()) {
     const columns = tableColumns(items);
     if (!columns) {
+      sourceGap = true;
       warnings.push(
         `Page ${index + 1} has no supported transaction table; date coverage is partial.`,
       );
@@ -478,6 +501,7 @@ export function parseBrowserSummaryRows(
         if (year) openingYears.push(Number(year[1]));
         openingEntries.push({
           rawText: line.items.map((item) => item.str).join(" "),
+          precedingMovements: records.length,
           ambiguousLabel:
             new Set(openingLabels.map((item) => normalized(item.str))).size > 1,
           dates: [
@@ -552,6 +576,7 @@ export function parseBrowserSummaryRows(
       tableRow++;
       records.push({
         page: index + 1,
+        previousBalanceKnown: !sourceGap,
         dates,
         rawText: text.join("\n"),
         description: description(descriptionLines),
@@ -566,6 +591,7 @@ export function parseBrowserSummaryRows(
           "running balance",
         ),
       });
+      sourceGap = false;
       dates = [];
       text = [];
       descriptionLines = [];
@@ -709,9 +735,74 @@ export function parseBrowserSummaryRows(
     };
   });
   const metadata = statementMetadata(pages[0] ?? [], openingYears);
+  const openingMinor =
+    openingEntries.length === 1 &&
+    !openingEntries[0].ambiguousLabel &&
+    openingEntries[0].precedingMovements === 0
+      ? openingEntries[0].cell.minor
+      : undefined;
+  const checks = rows.map(({ position }, index) => {
+    const previous = !records[index].previousBalanceKnown
+      ? undefined
+      : index === 0
+        ? openingMinor
+        : records[index - 1].balance.minor;
+    const movement = records[index].amounts.signedMinor;
+    const current = records[index].balance.minor;
+    let status: ReconciliationStatus;
+    let reason: string | undefined;
+    if (
+      previous === undefined ||
+      movement === undefined ||
+      current === undefined
+    ) {
+      status = "unresolved";
+      const missing = [
+        ...(previous === undefined ? ["previous source balance"] : []),
+        ...(movement === undefined ? ["signed Debit/Credit movement"] : []),
+        ...(current === undefined ? ["current source running balance"] : []),
+      ];
+      reason = `Valid unambiguous evidence is unavailable for ${missing.join(", ")}.`;
+    } else if (movement > 0 && previous > Number.MAX_SAFE_INTEGER - movement) {
+      status = "unresolved";
+      reason = "The integer sum is outside the safe range.";
+    } else {
+      status = previous + movement === current ? "verified" : "mismatch";
+      if (status === "mismatch")
+        reason =
+          "Previous source balance plus signed movement differs from current source balance.";
+    }
+    if (reason)
+      warnings.push(
+        `Running balance reconciliation ${status} at page ${position.page}, row ${position.row}: ${reason}`,
+      );
+    return { position, status };
+  });
+  const finalMinor = sourceGap
+    ? undefined
+    : records[records.length - 1]?.balance.minor;
+  const closingMinor =
+    closingEntries.length === 1 ? closingEntries[0].cell.minor : undefined;
+  const closingStatus: ReconciliationStatus =
+    finalMinor === undefined || closingMinor === undefined
+      ? "unresolved"
+      : finalMinor === closingMinor
+        ? "verified"
+        : "mismatch";
+  if (closingStatus !== "verified")
+    warnings.push(
+      closingStatus === "mismatch"
+        ? "Closing balance reconciliation mismatch: header closing balance differs from final source running balance."
+        : "Closing balance reconciliation unresolved: valid unambiguous header closing and final source running balances are required.",
+    );
+  const reconciliation: ParsedStatementReconciliation = {
+    rows: checks,
+    closingBalance: closingStatus,
+  };
   return {
     metadata: metadata.metadata,
     rows,
+    reconciliation,
     warnings: [...warnings, ...metadata.warnings],
     ...(openingBalance ? { openingBalance } : {}),
     ...(closingBalance ? { closingBalance } : {}),

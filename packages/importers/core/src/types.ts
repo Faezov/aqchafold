@@ -68,9 +68,23 @@ export type ParsedStatementRow = {
   readonly warnings: readonly string[];
 };
 
+/** Outcome of one source-balance relation; unresolved is never a pass or mismatch. */
+export type ReconciliationStatus = "verified" | "mismatch" | "unresolved";
+
+/** Source arithmetic only, without proving currency, completeness, or acceptance. */
+export type ParsedStatementReconciliation = {
+  /** One check per movement in document order, against opening/preceding source balance. */
+  readonly rows: readonly {
+    readonly position: StatementSourcePosition;
+    readonly status: ReconciliationStatus;
+  }[];
+  /** Explicit closing balance compared with the final source running balance. */
+  readonly closingBalance: ReconciliationStatus;
+};
+
 /**
- * Parser output before reconciliation, Account matching, canonical conversion,
- * or persistence. Optional interpreted fields stay absent when unproven;
+ * Source observations and optional balance checks before Account matching,
+ * canonical conversion, or persistence. Optional interpreted fields stay absent when unproven;
  * original extracted descriptions, notation, and values must never be overwritten.
  * All evidence and diagnostics are sensitive local data and must not be logged.
  */
@@ -79,6 +93,8 @@ export type ParsedStatement = {
   readonly metadata: ParsedStatementMetadata;
   readonly openingBalance?: ParsedStatementBalance;
   readonly closingBalance?: ParsedStatementBalance;
+  /** Absent means checks were not performed; present outcomes describe only checked relations. */
+  readonly reconciliation?: ParsedStatementReconciliation;
   /** Preserve document order, including unresolved and legitimate zero-value rows. */
   readonly rows: readonly ParsedStatementRow[];
   /** Explain document/metadata/balance uncertainty, reconstruction, and partial coverage. */

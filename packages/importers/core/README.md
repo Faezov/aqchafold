@@ -25,9 +25,24 @@ data and must not appear in logs.
 not established, `""` means an established genuinely empty source description,
 and a nonempty string is the established exact source description.
 
+`ParsedStatement.reconciliation` is optional: absence means source-balance checks
+were not performed. `ParsedStatementReconciliation` contains an ordered `rows`
+array of `{ position, status }` and a `closingBalance` status. Each
+`ReconciliationStatus` is `"verified"`, `"mismatch"`, or `"unresolved"`; an
+unavailable check is never a pass or an arithmetic mismatch. Row positions
+identify the movement checked against the opening or preceding source balance.
+The closing check compares explicit closing evidence with the final source
+running balance. Warnings explain nonverified checks without exposing values.
+
+These outcomes establish source arithmetic only within each checked relation,
+not currency, Account matching, document completeness, or acceptance. Validated
+source magnitudes can be checked without constructing `Money` or assuming an ISO
+currency. All source evidence remains unchanged.
+
 These are type declarations only. The existing domain package supplies `Money`
 and `ImportParserProvenance` through type-only imports; there is no new third-party
 dependency. Results are neither persisted `Import` objects nor canonical
-`Transaction` objects and contain no confirmed Account association. Parsing does
-not establish reconciliation or acceptance. Concrete detection/parsing,
-reconciliation, canonical conversion, persistence, and PDF integration are deferred.
+`Transaction` objects and contain no confirmed Account association. Parsing alone
+does not imply verification or acceptance; source checks have explicit outcomes.
+Bank-specific detection, extraction, and arithmetic live in the concrete importer.
+Canonical conversion, persistence, and importer selection remain deferred.

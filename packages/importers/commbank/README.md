@@ -139,5 +139,32 @@ leaves both boundaries absent; transaction dates never supply period boundaries.
 Statement label does not establish a value, and no structured customer identity
 is introduced. Dollar notation establishes no ISO currency, so all amount/balance
 Money fields remain unresolved. Money construction, merchant/category logic,
-reconciliation, canonical conversion, persistence, and importer selection remain
-deferred.
+canonical conversion, persistence, and importer selection remain deferred.
+
+`reconciliation` records one source-balance check per movement, in document order,
+as `{ position, status }`, plus a header `closingBalance` check. Each status is
+`"verified"`, `"mismatch"`, or `"unresolved"`; verification is explicit rather than
+inferred from missing warnings. The scope is source arithmetic, not whole-import
+acceptance, currency proof, or document completeness.
+
+The exact equation is `previous source balance + signed source movement = current
+source balance`. The same strict two-decimal validators produce private safe
+integer minor units. Exactly one populated valid Debit/Credit cell is required:
+Debit is negative and Credit positive. Neither Money nor an ISO currency is needed.
+Unsafe sums are rejected before addition; no floating-point dollar arithmetic,
+tolerance, rounding, or source repairs are used.
+
+The first movement uses a unique explicit opening entry preceding it. Each later
+movement uses the immediately preceding source running balance, regardless of
+that previous movement's check outcome. Computed balances are never carried
+forward. Missing or invalid current balances affect their own and the next
+relation; later independently valid source balances allow checks to resume.
+Skipped unsupported table pages similarly interrupt the next baseline, and a
+trailing unsupported page leaves the final source balance unestablished.
+
+The closing check compares the unique header value with the final source running
+balance independently of movement-check outcomes. It never substitutes an opening
+or computed balance. Ambiguous entries/cells, missing or malformed magnitudes,
+and unsafe evidence yield `unresolved`, while exact arithmetic disagreement yields
+`mismatch`. Nonverified checks add deterministic document warnings identifying
+the relation without transaction values; verified checks add no warnings.

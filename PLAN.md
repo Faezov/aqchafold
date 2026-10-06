@@ -110,7 +110,7 @@ CommBank PDF
 - [X] Parse amounts
 - [X] Parse balances
 - [X] Parse statement metadata
-- [ ] Reconcile running balances
+- [X] Reconcile running balances
 - [ ] Convert parsed rows to canonical Transactions
 - [ ] Persist imported transactions
 - [ ] Detect duplicate imports

@@ -5,5 +5,7 @@ export type {
   ParsedStatementMetadata,
   ParsedStatementBalance,
   ParsedStatementRow,
+  ReconciliationStatus,
+  ParsedStatementReconciliation,
   ParsedStatement,
 } from "./types";
