@@ -152,7 +152,42 @@ ascending using ordinary JavaScript UTF-16 string ordering, without locale or
 numeric comparison. Ordering is independent of input order. The outer array,
 group objects, and ID arrays are frozen; caller arrays and records stay unchanged.
 No persistence or Transaction assignment happens here. Financial totals and
-ranking come later.
+ranking are provided only by the separate currency-scoped layer below.
+
+`rankUnknownMerchantReviewQueues(observations)` accepts readonly
+`UnknownMerchantFinancialObservation` records: the existing observation fields
+plus canonical `amountMinor` and `currency`. Callers still supply only unknown
+outcomes. Basic textual aggregation remains independent of amounts and currency.
+The ranker reuses its validation globally and its grouping within each currency.
+
+The readonly result contains one `UnknownMerchantReviewQueue` per currency, with
+`currency` and readonly `groups`. Each `RankedUnknownMerchantGroup` extends the
+textual group with `spendingMinor`: the exact integer sum of positive magnitudes
+of negative canonical amounts. Financial importance currently means total
+canonical outflow, not an economic spending classification. Positive credits and
+refunds are not netted against outflow; positive and zero observations remain in
+IDs/counts while contributing zero. No fractional major-unit arithmetic is used.
+
+Grouping is exact and case-sensitive by description within each currency. The
+same description in different currencies remains financially separate. Amounts
+from different currencies are never summed or compared. There is no FX conversion
+or global financial ranking. Currency queues are listed by code ascending only
+for presentation.
+Within one queue, groups sort by `spendingMinor` descending, then
+`transactionCount` descending, then description ascending using ordinary JS
+string ordering. Transaction IDs retain the aggregation API's lexical ordering.
+
+Amounts must be safe integers (`RangeError` otherwise). Currency must contain
+exactly three uppercase ASCII letters (`TypeError` otherwise), matching Money's
+current structural validation without an invented currency registry. Blank fields
+and duplicate IDs, including across currencies, follow the aggregation contract.
+Accumulation is checked before each addition; an unsafe group total throws
+`RangeError` rather than rounding. No combined monetary queue total is computed.
+
+All output layers are frozen and input strings/records stay unchanged. These
+remain review candidates, not Merchant identities. Ranking performs no
+normalization, persistence, resolution, or Transaction assignment. The merchant
+review UI is the next separate step.
 
 Tests check the public contracts and production behavior using synthetic
 descriptions. Location/noise suffix removal, broader identity resolution, category

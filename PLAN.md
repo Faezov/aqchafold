@@ -159,7 +159,7 @@ raw description
 - [X] Add confirmed / suggested / unknown status
 - [X] Ensure user-confirmed rules have highest priority
 - [X] Aggregate unknown transactions by merchant
-- [ ] Rank review queue by financial importance
+- [X] Rank review queue by financial importance
 - [ ] Create merchant review screen
 - [ ] Allow user to confirm a suggestion
 - [ ] Allow user to change a category

@@ -12,6 +12,12 @@ export {
   unknownMerchant,
 } from "./resolution";
 export type { MerchantResolution } from "./resolution";
+export { rankUnknownMerchantReviewQueues } from "./review-ranking";
+export type {
+  RankedUnknownMerchantGroup,
+  UnknownMerchantFinancialObservation,
+  UnknownMerchantReviewQueue,
+} from "./review-ranking";
 export { aggregateUnknownMerchantObservations } from "./unknown-aggregation";
 export type {
   UnknownMerchantGroup,
