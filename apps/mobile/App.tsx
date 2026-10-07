@@ -3,6 +3,7 @@ import {
   createLocalAccount,
   HouseholdRepository,
   ImportRepository,
+  MerchantRuleRepository,
   migrateLedgeraseDatabase,
   openLedgeraseDatabase,
   TransactionRepository,
@@ -17,6 +18,7 @@ import { readDocumentBytes } from "./src/platform/read-document-bytes";
 import { importStateReducer } from "./src/presentation/import-state";
 import AccountsScreen from "./src/screens/AccountsScreen";
 import HomeScreen from "./src/screens/HomeScreen";
+import MerchantReviewScreen from "./src/screens/MerchantReviewScreen";
 import TransactionsScreen from "./src/screens/TransactionsScreen";
 
 type AppState =
@@ -29,6 +31,7 @@ type AppState =
       householdRepository: HouseholdRepository;
       importRepository: ImportRepository;
       transactionRepository: TransactionRepository;
+      merchantRuleRepository: MerchantRuleRepository;
     };
 
 type AccountReadState =
@@ -38,9 +41,9 @@ type AccountReadState =
 
 export default function App() {
   const [state, setState] = useState<AppState>({ status: "loading" });
-  const [screen, setScreen] = useState<"home" | "accounts" | "transactions">(
-    "home",
-  );
+  const [screen, setScreen] = useState<
+    "home" | "accounts" | "transactions" | "merchant-review"
+  >("home");
   const [importState, dispatchImport] = useReducer(importStateReducer, {
     status: "ready",
     document: null,
@@ -154,6 +157,7 @@ export default function App() {
             const householdRepository = new HouseholdRepository(database);
             const importRepository = new ImportRepository(database);
             const transactionRepository = new TransactionRepository(database);
+            const merchantRuleRepository = new MerchantRuleRepository(database);
             retained = true;
             retainedDatabase = database;
             setState({
@@ -163,6 +167,7 @@ export default function App() {
               householdRepository,
               importRepository,
               transactionRepository,
+              merchantRuleRepository,
             });
           }
         } finally {
@@ -233,6 +238,16 @@ export default function App() {
         />
       );
     }
+    if (screen === "merchant-review") {
+      return (
+        <MerchantReviewScreen
+          accountRepository={state.accountRepository}
+          transactionRepository={state.transactionRepository}
+          merchantRuleRepository={state.merchantRuleRepository}
+          onBack={returnHome}
+        />
+      );
+    }
     return (
       <HomeScreen
         onOpenAccounts={() => {
@@ -240,6 +255,9 @@ export default function App() {
         }}
         onOpenTransactions={() => {
           if (!importInProgress.current) setScreen("transactions");
+        }}
+        onOpenMerchantReview={() => {
+          if (!importInProgress.current) setScreen("merchant-review");
         }}
         onPickStatement={() => void selectStatement()}
         isPicking={pickerStatus === "picking"}

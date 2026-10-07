@@ -13,6 +13,7 @@ import type { ImportState } from "../presentation/import-state";
 type HomeScreenProps = {
   onOpenAccounts: () => void;
   onOpenTransactions: () => void;
+  onOpenMerchantReview: () => void;
   onPickStatement: () => void;
   isPicking: boolean;
   pickerFailed: boolean;
@@ -29,6 +30,7 @@ type HomeScreenProps = {
 export default function HomeScreen({
   onOpenAccounts,
   onOpenTransactions,
+  onOpenMerchantReview,
   onPickStatement,
   isPicking,
   pickerFailed,
@@ -81,6 +83,18 @@ export default function HomeScreen({
       >
         <Text style={styles.destinationTitle}>Transactions</Text>
         <Text style={styles.description}>View saved transactions</Text>
+      </Pressable>
+
+      <Pressable
+        onPress={onOpenMerchantReview}
+        disabled={isImporting}
+        accessibilityRole="button"
+        accessibilityLabel="Merchant review"
+        accessibilityState={{ disabled: isImporting }}
+        style={[styles.destination, !isImporting && styles.available]}
+      >
+        <Text style={styles.destinationTitle}>Merchant review</Text>
+        <Text style={styles.description}>View unknown merchant groups</Text>
       </Pressable>
 
       <Pressable

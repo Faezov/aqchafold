@@ -160,7 +160,7 @@ raw description
 - [X] Ensure user-confirmed rules have highest priority
 - [X] Aggregate unknown transactions by merchant
 - [X] Rank review queue by financial importance
-- [ ] Create merchant review screen
+- [X] Create merchant review screen
 - [ ] Allow user to confirm a suggestion
 - [ ] Allow user to change a category
 - [ ] Remember correction permanently

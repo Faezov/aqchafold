@@ -55,6 +55,31 @@ The presentation-local formatter supports AUD's two-decimal display using intege
 digit strings, without floating-point monetary conversion. Other currencies show
 exact signed minor units because currency-scale metadata is not implemented.
 
+Home also opens a read-only Merchant review screen using the same root screen
+state and database connection. Each entry reads current Transactions and Accounts
+and rebuilds the queue; no review data is cached across entries. Both Back controls
+return Home, preserving the selected statement and retained import result.
+
+The presentation helper `buildMerchantReviewQueues()` skips Transactions with an
+existing `merchantId` and those without a raw description. It derives text using
+`normalizePaymentProcessorPrefix()` and deliberately omits empty results. Each
+remaining Transaction gets Household context from its persisted Account, including
+closed Accounts; missing Account context fails instead of assuming a Household.
+`MerchantRuleRepository.get(account.householdId, normalizedDescription)` supplies
+an exact, Household-scoped confirmed identity to `resolveMerchantIdentity()`.
+Confirmed results are excluded. There is no persisted alias catalog or fabricated
+suggestion source. Source Transactions and `rawDescription` remain unchanged.
+
+Only unknown observations reach `rankUnknownMerchantReviewQueues()`. The screen
+preserves its currency sections and spending/count/description order, showing
+derived descriptions, Transaction counts, and total outgoing value. Credits and
+zero contribute to counts but do not reduce outgoing value. AUD uses the existing
+safe two-decimal formatter; other currencies show exact minor units without
+assuming a scale or converting currencies. Loading, empty, and fixed error states
+expose no source descriptions, IDs, or database diagnostics. Review groups remain
+textual candidates; this screen creates no Merchants or rules, changes no
+Transactions, and offers no confirmation or category controls.
+
 Home's Choose statement PDF control opens Android's system document picker using
 `expo-document-picker`, installed with
 `pnpm --filter @aqchafold/mobile exec expo install expo-document-picker --pnpm`.

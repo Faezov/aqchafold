@@ -14,6 +14,7 @@
     "@aqchafold/domain": "workspace:*",
     "@aqchafold/importers-commbank": "workspace:*",
     "@aqchafold/importers-core": "workspace:*",
+    "@aqchafold/merchants": "workspace:*",
     "expo": "~57.0.26",
     "expo-crypto": "~57.0.3",
     "expo-document-picker": "~57.0.3",
