@@ -55,7 +55,7 @@ The presentation-local formatter supports AUD's two-decimal display using intege
 digit strings, without floating-point monetary conversion. Other currencies show
 exact signed minor units because currency-scale metadata is not implemented.
 
-Home also opens a read-only Merchant review screen using the same root screen
+Home also opens a Merchant review screen using the same root screen
 state and database connection. Each entry reads current Transactions and Accounts
 and rebuilds the queue; no review data is cached across entries. Both Back controls
 return Home, preserving the selected statement and retained import result.
@@ -100,10 +100,27 @@ and zero contribute to counts but do not reduce outgoing value. AUD uses the
 existing safe two-decimal formatter; other currencies show exact minor units
 without assuming a scale or converting currencies. Household and Merchant IDs are
 retained only in internal presentation state, never rendered. Loading, empty, and
-fixed error states expose no raw source fields or database diagnostics. The screen
-creates no Merchants or rules, changes no Transactions, and offers no confirmation
-or category controls. Suggestions are derived afresh on entry and are not
-persisted; confirmation is the next separate task.
+fixed error states expose no raw source fields or database diagnostics.
+
+On Android, suggested groups show `Suggested: <canonical display name>` and a
+Confirm button; unknown groups remain read-only. iOS confirmation remains deferred.
+`createMerchantReviewController().confirm()` accepts a typed suggested item with
+its internal Household context. It validates nonblank action fields, requires the
+actual suggested group from the current queue, and rechecks the canonical Merchant
+by ID. Display names never establish identity. Only an explicit confirmation calls
+`MerchantRuleRepository.create({ householdId, normalizedDescription, merchantId })`.
+No Merchant is created or edited, and no Transaction, raw description, or category
+is changed.
+
+A synchronous submission guard and current-item check prevent repeated writes,
+including stale taps from another currency group. The group remains until the
+write succeeds and the queue is rebuilt from SQLite. The confirmed exact key is
+excluded in every currency of that Household, while other Households and unrelated
+groups remain. Reentering the screen reads the persisted rule again. Identical
+and conflicting existing keys are rejected without overwrite. Failed confirmation
+shows fixed text without inspecting error strings and reloads SQLite source truth;
+a failed reload shows the existing fixed load-error state. Suggestions themselves
+are still derived afresh, rather than persisted as unconfirmed rules.
 
 Home's Choose statement PDF control opens Android's system document picker using
 `expo-document-picker`, installed with

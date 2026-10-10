@@ -13,7 +13,12 @@ import {
   Transaction,
 } from "@aqchafold/domain";
 import { drizzle } from "drizzle-orm/expo-sqlite/driver";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  createMerchantReviewController,
+  MERCHANT_CONFIRMATION_FAILURE_MESSAGE,
+  type MerchantReviewState,
+} from "../../../apps/mobile/src/presentation/merchant-review-controller";
 import { buildMerchantReviewQueues } from "../../../apps/mobile/src/presentation/merchant-review-data";
 import {
   resolveMerchantAlias,
@@ -91,6 +96,90 @@ function rule(patch: Partial<MerchantRule> = {}): MerchantRule {
     merchantId: "merchant-a",
     ...patch,
   };
+}
+
+function confirmationReview() {
+  store.database
+    .insert(schema.households)
+    .values({ id: "household-b", label: "Synthetic household B" })
+    .run();
+  const accountRepository = new AccountRepository(store.database);
+  for (const [id, householdId, primaryCurrency] of [
+    ["account-a-aud", "household-a", "AUD"],
+    ["account-a-usd", "household-a", "USD"],
+    ["account-b-aud", "household-b", "AUD"],
+  ]) {
+    accountRepository.create(
+      new Account({
+        id,
+        householdId,
+        primaryCurrency,
+        label: "Synthetic account",
+        type: "transaction",
+        status: "active",
+        ownership: { kind: "household-level" },
+      }),
+    );
+  }
+  const transactionRepository = new TransactionRepository(store.database);
+  const rawDescription =
+    " \tPAYPAL * Synthetic   Descriptor\r\nValue Date 29/02/2400";
+  for (const [id, accountId, currency, merchantId, description] of [
+    ["history-a", "account-a-aud", "AUD", "merchant-a", rawDescription],
+    ["pending-a-aud", "account-a-aud", "AUD", undefined, rawDescription],
+    ["pending-a-usd", "account-a-usd", "USD", undefined, rawDescription],
+    ["other-a", "account-a-aud", "AUD", undefined, "Other Synthetic Shop"],
+    ["history-b", "account-b-aud", "AUD", "merchant-b", rawDescription],
+    ["pending-b", "account-b-aud", "AUD", undefined, rawDescription],
+  ] as const) {
+    transactionRepository.create(
+      new Transaction({
+        id,
+        accountId,
+        postingDate: "2400-03-01",
+        amount: new Money(-1200, currency),
+        origin: "imported",
+        merchantId,
+        rawDescription: description,
+      }),
+    );
+  }
+  const repositories = {
+    accountRepository,
+    transactionRepository,
+    merchantRepository: new MerchantRepository(store.database),
+    merchantRuleRepository: repository,
+  };
+  const states: MerchantReviewState[] = [];
+  const controller = createMerchantReviewController(repositories, (state) =>
+    states.push(state),
+  );
+  controller.load();
+  return {
+    controller,
+    repositories,
+    rawDescription,
+    state: () => states.at(-1)!,
+  };
+}
+
+function suggestedAction(
+  state: MerchantReviewState,
+  householdId = "household-a",
+  currency = "AUD",
+) {
+  if (state.status !== "ready") throw new Error("Expected ready review data.");
+  const group = state.queues
+    .find(
+      (queue) =>
+        queue.householdId === householdId && queue.currency === currency,
+    )
+    ?.groups.find(
+      (candidate) => candidate.normalizedDescription === "Synthetic Descriptor",
+    );
+  if (group?.status !== "suggested")
+    throw new Error("Expected a suggested review group.");
+  return { householdId, group };
 }
 
 let store: ReturnType<typeof createDatabase>;
@@ -427,6 +516,102 @@ describe("MerchantRuleRepository with real SQLite", () => {
       " \tSQ *MiXeD Café & 東京!\r\nValue Date 29/02/2400",
     );
   });
+
+  it("confirms a canonical suggestion across Household currencies without modifying Transactions", () => {
+    const review = confirmationReview();
+    const before = review.repositories.transactionRepository.list();
+    const rowsBefore = store.sqlite
+      .prepare("SELECT * FROM transactions ORDER BY id")
+      .all();
+    const action = suggestedAction(review.state());
+    const siblingCurrency = suggestedAction(
+      review.state(),
+      "household-a",
+      "USD",
+    );
+    const create = vi.spyOn(repository, "create");
+    expect(action.group.displayName).toBe("Synthetic shop");
+    expect(action.group.merchantId).toBe("merchant-a");
+    review.controller.confirm(action);
+    review.controller.confirm(action);
+    review.controller.confirm(siblingCurrency);
+
+    const mapping = rule({ normalizedDescription: "Synthetic Descriptor" });
+    expect(create).toHaveBeenCalledExactlyOnceWith(mapping);
+    expect(repository.list("household-a")).toEqual([mapping]);
+    expect(repository.list("household-b")).toEqual([]);
+    const state = review.state();
+    expect(state.status).toBe("ready");
+    if (state.status !== "ready")
+      throw new Error("Expected ready review data.");
+    expect(state.confirmationError).toBeUndefined();
+    expect(
+      state.queues.map((queue) => [
+        queue.householdId,
+        queue.currency,
+        queue.groups.map((group) => [
+          group.normalizedDescription,
+          group.status,
+        ]),
+      ]),
+    ).toEqual([
+      ["household-a", "AUD", [["Other Synthetic Shop", "unknown"]]],
+      ["household-b", "AUD", [["Synthetic Descriptor", "suggested"]]],
+    ]);
+    expect(review.repositories.transactionRepository.list()).toEqual(before);
+    expect(
+      review.repositories.transactionRepository.getById("pending-a-aud")
+        ?.rawDescription,
+    ).toBe(review.rawDescription);
+    expect(
+      store.sqlite.prepare("SELECT * FROM transactions ORDER BY id").all(),
+    ).toEqual(rowsBefore);
+
+    const reopenedStates: MerchantReviewState[] = [];
+    createMerchantReviewController(review.repositories, (value) =>
+      reopenedStates.push(value),
+    ).load();
+    expect(reopenedStates.at(-1)).toEqual(state);
+  });
+
+  it.each(["merchant-a", "merchant-b"])(
+    "reloads a raced existing %s confirmation without overwriting it",
+    (merchantId) => {
+      const review = confirmationReview();
+      const before = review.repositories.transactionRepository.list();
+      const action = suggestedAction(review.state());
+      const mapping = rule({
+        normalizedDescription: "Synthetic Descriptor",
+        merchantId,
+      });
+      repository.create(mapping);
+      const create = vi.spyOn(repository, "create");
+      review.controller.confirm(action);
+
+      expect(create).toHaveBeenCalledExactlyOnceWith(
+        rule({ normalizedDescription: "Synthetic Descriptor" }),
+      );
+      expect(repository.list("household-a")).toEqual([mapping]);
+      const state = review.state();
+      expect(state.status).toBe("ready");
+      if (state.status !== "ready")
+        throw new Error("Expected ready review data.");
+      expect(state.confirmationError).toBe(
+        MERCHANT_CONFIRMATION_FAILURE_MESSAGE,
+      );
+      expect(
+        state.queues
+          .filter((queue) => queue.householdId === "household-a")
+          .flatMap((queue) => queue.groups)
+          .map((group) => group.normalizedDescription),
+      ).toEqual(["Other Synthetic Shop"]);
+      expect(
+        state.queues.find((queue) => queue.householdId === "household-b")
+          ?.groups[0].status,
+      ).toBe("suggested");
+      expect(review.repositories.transactionRepository.list()).toEqual(before);
+    },
+  );
 
   it("retains rules after closing and reopening the local SQLite file", () => {
     const directory = mkdtempSync(join(tmpdir(), "ledgerase-merchant-rules-"));

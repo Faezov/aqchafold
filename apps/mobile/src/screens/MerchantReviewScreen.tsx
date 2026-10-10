@@ -4,8 +4,9 @@ import type {
   MerchantRuleRepository,
   TransactionRepository,
 } from "@aqchafold/database";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  Platform,
   Pressable,
   SectionList,
   StatusBar,
@@ -15,9 +16,9 @@ import {
 } from "react-native";
 import { formatTransactionAmount } from "../presentation/format-transaction-amount";
 import {
-  buildMerchantReviewQueues,
-  type MerchantReviewQueue,
-} from "../presentation/merchant-review-data";
+  createMerchantReviewController,
+  type MerchantReviewState,
+} from "../presentation/merchant-review-controller";
 
 type MerchantReviewScreenProps = {
   accountRepository: AccountRepository;
@@ -27,11 +28,6 @@ type MerchantReviewScreenProps = {
   onBack: () => void;
 };
 
-type ReadState =
-  | { status: "loading" }
-  | { status: "error" }
-  | { status: "ready"; queues: readonly MerchantReviewQueue[] };
-
 export default function MerchantReviewScreen({
   accountRepository,
   transactionRepository,
@@ -39,32 +35,32 @@ export default function MerchantReviewScreen({
   merchantRuleRepository,
   onBack,
 }: MerchantReviewScreenProps) {
-  const [state, setState] = useState<ReadState>({ status: "loading" });
+  const [state, setState] = useState<MerchantReviewState>({
+    status: "loading",
+  });
+  const controller = useMemo(
+    () =>
+      createMerchantReviewController(
+        {
+          accountRepository,
+          transactionRepository,
+          merchantRepository,
+          merchantRuleRepository,
+        },
+        setState,
+      ),
+    [
+      accountRepository,
+      transactionRepository,
+      merchantRepository,
+      merchantRuleRepository,
+    ],
+  );
 
   useEffect(() => {
-    const pendingRead = setTimeout(() => {
-      try {
-        const queues = buildMerchantReviewQueues({
-          transactions: transactionRepository.list(),
-          accounts: accountRepository.list(),
-          findConfirmedMerchantId: (householdId, normalizedDescription) =>
-            merchantRuleRepository.get(householdId, normalizedDescription)
-              ?.merchantId,
-          findMerchantById: (merchantId) =>
-            merchantRepository.getById(merchantId),
-        });
-        setState({ status: "ready", queues });
-      } catch {
-        setState({ status: "error" });
-      }
-    }, 0);
+    const pendingRead = setTimeout(controller.load, 0);
     return () => clearTimeout(pendingRead);
-  }, [
-    accountRepository,
-    transactionRepository,
-    merchantRepository,
-    merchantRuleRepository,
-  ]);
+  }, [controller]);
 
   return (
     <View style={styles.screen}>
@@ -79,6 +75,11 @@ export default function MerchantReviewScreen({
       <Text accessibilityRole="header" style={styles.title}>
         Merchant review
       </Text>
+      {state.status !== "loading" && state.confirmationError && (
+        <Text accessibilityRole="alert" style={styles.text}>
+          {state.confirmationError}
+        </Text>
+      )}
       {state.status === "loading" ? (
         <Text style={styles.text}>Loading merchant review…</Text>
       ) : state.status === "error" ? (
@@ -89,6 +90,7 @@ export default function MerchantReviewScreen({
         <SectionList
           sections={state.queues.map(({ householdId, currency, groups }) => ({
             key: JSON.stringify([householdId, currency]),
+            householdId,
             currency,
             data: groups,
           }))}
@@ -106,11 +108,6 @@ export default function MerchantReviewScreen({
           renderItem={({ item: group, section }) => (
             <View style={styles.group}>
               <Text style={styles.text}>{group.normalizedDescription}</Text>
-              {group.status === "suggested" && (
-                <Text style={styles.text}>
-                  Suggested Merchant: {group.displayName}
-                </Text>
-              )}
               <Text style={styles.text}>
                 Transactions: {group.transactionCount}
               </Text>
@@ -118,6 +115,30 @@ export default function MerchantReviewScreen({
                 Outgoing value:{" "}
                 {formatTransactionAmount(group.spendingMinor, section.currency)}
               </Text>
+              {group.status === "suggested" && (
+                <>
+                  <Text style={styles.text}>
+                    Suggested: {group.displayName}
+                  </Text>
+                  {Platform.OS === "android" && (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Confirm suggested Merchant"
+                      accessibilityState={{ disabled: state.submitting }}
+                      disabled={state.submitting}
+                      onPress={() =>
+                        controller.confirm({
+                          householdId: section.householdId,
+                          group,
+                        })
+                      }
+                      style={styles.confirm}
+                    >
+                      <Text style={styles.text}>Confirm</Text>
+                    </Pressable>
+                  )}
+                </>
+              )}
             </View>
           )}
         />
@@ -144,5 +165,11 @@ const styles = StyleSheet.create({
   currency: { fontSize: 18, fontWeight: "600", color: "#111" },
   list: { gap: 16, paddingBottom: 48 },
   group: { borderWidth: 1, borderColor: "#ccc", padding: 16, gap: 4 },
+  confirm: {
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderColor: "#888",
+    padding: 12,
+  },
   text: { fontSize: 16, color: "#333" },
 });
