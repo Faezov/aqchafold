@@ -182,7 +182,7 @@ Target:
 - [X] Separate irregular spending
 - [X] Calculate monthly category totals
 - [X] Calculate income
-- [ ] Calculate spending
+- [X] Calculate spending
 - [ ] Calculate monthly cash flow
 - [ ] Create basic dashboard
 - [ ] Create category spending view
