@@ -5,6 +5,8 @@ export { MemberRepository } from "./member-repository";
 export { AccountRepository } from "./account-repository";
 export { createLocalAccount } from "./local-account-setup";
 export { TransactionRepository } from "./transaction-repository";
+export type { TransactionCategoryAssignment } from "./transaction-repository";
+export { CategoryRepository } from "./category-repository";
 export { MerchantRepository } from "./merchant-repository";
 export { MerchantRuleRepository } from "./merchant-rule-repository";
 export type { MerchantRule } from "./merchant-rule-repository";

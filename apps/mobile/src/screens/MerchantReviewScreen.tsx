@@ -1,9 +1,11 @@
 import type {
   AccountRepository,
+  CategoryRepository,
   MerchantRepository,
   MerchantRuleRepository,
   TransactionRepository,
 } from "@aqchafold/database";
+import type { Category } from "@aqchafold/domain";
 import { useEffect, useMemo, useState } from "react";
 import {
   Platform,
@@ -15,6 +17,7 @@ import {
   View,
 } from "react-native";
 import { formatTransactionAmount } from "../presentation/format-transaction-amount";
+import type { CategorizedMerchantReviewGroup } from "../presentation/merchant-review-categories";
 import {
   createMerchantReviewController,
   type MerchantReviewState,
@@ -22,6 +25,7 @@ import {
 
 type MerchantReviewScreenProps = {
   accountRepository: AccountRepository;
+  categoryRepository: CategoryRepository;
   transactionRepository: TransactionRepository;
   merchantRepository: MerchantRepository;
   merchantRuleRepository: MerchantRuleRepository;
@@ -30,6 +34,7 @@ type MerchantReviewScreenProps = {
 
 export default function MerchantReviewScreen({
   accountRepository,
+  categoryRepository,
   transactionRepository,
   merchantRepository,
   merchantRuleRepository,
@@ -43,6 +48,7 @@ export default function MerchantReviewScreen({
       createMerchantReviewController(
         {
           accountRepository,
+          categoryRepository,
           transactionRepository,
           merchantRepository,
           merchantRuleRepository,
@@ -51,6 +57,7 @@ export default function MerchantReviewScreen({
       ),
     [
       accountRepository,
+      categoryRepository,
       transactionRepository,
       merchantRepository,
       merchantRuleRepository,
@@ -78,6 +85,11 @@ export default function MerchantReviewScreen({
       {state.status !== "loading" && state.confirmationError && (
         <Text accessibilityRole="alert" style={styles.text}>
           {state.confirmationError}
+        </Text>
+      )}
+      {state.status !== "loading" && state.categoryError && (
+        <Text accessibilityRole="alert" style={styles.text}>
+          {state.categoryError}
         </Text>
       )}
       {state.status === "loading" ? (
@@ -115,6 +127,28 @@ export default function MerchantReviewScreen({
                 Outgoing value:{" "}
                 {formatTransactionAmount(group.spendingMinor, section.currency)}
               </Text>
+              <Text style={styles.text}>
+                Category:{" "}
+                {group.categoryState.kind === "uncategorized"
+                  ? "Uncategorized"
+                  : group.categoryState.kind === "mixed"
+                    ? "Mixed categories"
+                    : group.categoryState.category.name}
+              </Text>
+              {Platform.OS === "android" && (
+                <CategoryAssignment
+                  group={group}
+                  categories={state.activeCategories}
+                  submitting={state.submitting}
+                  onApply={(categoryId) =>
+                    controller.applyCategory({
+                      householdId: section.householdId,
+                      group,
+                      categoryId,
+                    })
+                  }
+                />
+              )}
               {group.status === "suggested" && (
                 <>
                   <Text style={styles.text}>
@@ -147,6 +181,72 @@ export default function MerchantReviewScreen({
   );
 }
 
+function CategoryAssignment({
+  group,
+  categories,
+  submitting,
+  onApply,
+}: {
+  group: CategorizedMerchantReviewGroup;
+  categories: readonly Category[];
+  submitting: boolean;
+  onApply: (categoryId: string) => void;
+}) {
+  const [selection, setSelection] = useState<{
+    group: CategorizedMerchantReviewGroup;
+    categoryId: string;
+  }>();
+  // Reloaded groups invalidate a selection, including after either action fails.
+  const selected =
+    selection?.group === group
+      ? categories.find((category) => category.id === selection.categoryId)
+      : undefined;
+  return (
+    <View style={styles.categoryControls}>
+      <Text style={styles.text}>
+        {categories.length === 0
+          ? "No categories available"
+          : "Choose category"}
+      </Text>
+      <View style={styles.categoryOptions}>
+        {categories.map((category) => (
+          <Pressable
+            key={category.id}
+            accessibilityRole="radio"
+            accessibilityState={{
+              checked: selected === category,
+              disabled: submitting,
+            }}
+            disabled={submitting}
+            onPress={() => setSelection({ group, categoryId: category.id })}
+            style={[
+              styles.confirm,
+              selected === category && styles.selectedCategory,
+            ]}
+          >
+            <Text style={styles.text}>{category.name}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Apply category to this review group"
+        accessibilityState={{ disabled: submitting || selected === undefined }}
+        disabled={submitting || selected === undefined}
+        onPress={() => {
+          if (selected) onApply(selected.id);
+        }}
+        style={[
+          styles.confirm,
+          (submitting || selected === undefined) && styles.disabled,
+        ]}
+      >
+        <Text style={styles.text}>Apply</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
@@ -165,6 +265,10 @@ const styles = StyleSheet.create({
   currency: { fontSize: 18, fontWeight: "600", color: "#111" },
   list: { gap: 16, paddingBottom: 48 },
   group: { borderWidth: 1, borderColor: "#ccc", padding: 16, gap: 4 },
+  categoryControls: { gap: 8, marginVertical: 8 },
+  categoryOptions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  selectedCategory: { backgroundColor: "#e4edf7", borderColor: "#245b91" },
+  disabled: { opacity: 0.5 },
   confirm: {
     alignSelf: "flex-start",
     borderWidth: 1,

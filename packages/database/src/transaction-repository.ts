@@ -1,10 +1,20 @@
-import type { Transaction } from "@aqchafold/domain";
+import { Category, type Transaction } from "@aqchafold/domain";
 import { asc, desc, eq } from "drizzle-orm";
+import { AccountRepository } from "./account-repository";
 import type { openLedgeraseDatabase } from "./database";
 import { accounts, categories, merchants, transactions } from "./schema";
 import { transactionFromRow, transactionToRow } from "./transaction-mapping";
 
-/** Creates and reads canonical posted movements with validated references. */
+export type TransactionCategoryAssignment = {
+  readonly householdId: string;
+  readonly transactionIds: readonly string[];
+  readonly categoryId: string;
+};
+
+// Only these repository-owned diagnostics may leave the assignment boundary.
+class CategoryAssignmentError extends Error {}
+
+/** Canonical posted movements with validated references and explicit category assignment. */
 export class TransactionRepository {
   constructor(
     private readonly database: ReturnType<typeof openLedgeraseDatabase>,
@@ -29,6 +39,74 @@ export class TransactionRepository {
       },
       { behavior: "immediate" },
     );
+  }
+
+  /** Change only category_id for the exact supplied Household-owned Transactions. */
+  assignCategory(input: TransactionCategoryAssignment): void {
+    const { householdId, transactionIds, categoryId } =
+      validateCategoryAssignment(input);
+    try {
+      this.database.transaction(
+        (database) => {
+          // Categories are globally modeled in v0.1; Household scope comes from Accounts.
+          const categoryRow = database
+            .select()
+            .from(categories)
+            .where(eq(categories.id, categoryId))
+            .get();
+          if (categoryRow === undefined) {
+            throw new CategoryAssignmentError(
+              "Category assignment requires an existing Category.",
+            );
+          }
+          if (new Category(categoryRow).status !== "active") {
+            throw new CategoryAssignmentError(
+              "Category assignment requires an active Category.",
+            );
+          }
+          const accountRepository = new AccountRepository(database);
+          // Validate the entire batch before any update; preserve corrupt-source failures.
+          for (const id of transactionIds) {
+            const row = database
+              .select()
+              .from(transactions)
+              .where(eq(transactions.id, id))
+              .get();
+            if (row === undefined) {
+              throw new CategoryAssignmentError(
+                "Category assignment requires existing Transactions.",
+              );
+            }
+            transactionFromRow(row);
+            assertReferences(database, row);
+            if (
+              accountRepository.getById(row.accountId)?.householdId !==
+              householdId
+            ) {
+              throw new CategoryAssignmentError(
+                "Category assignment requires Transactions in the supplied Household.",
+              );
+            }
+          }
+          for (const id of transactionIds) {
+            const result = database
+              .update(transactions)
+              .set({ categoryId })
+              .where(eq(transactions.id, id))
+              .run();
+            if (result.changes !== 1) {
+              throw new CategoryAssignmentError(
+                "Category assignment must update every supplied Transaction.",
+              );
+            }
+          }
+        },
+        { behavior: "immediate" },
+      );
+    } catch (error) {
+      if (error instanceof CategoryAssignmentError) throw error;
+      throw new Error("Transaction category assignment failed.");
+    }
   }
 
   getById(id: string): Transaction | undefined {
@@ -61,6 +139,44 @@ export class TransactionRepository {
         return transaction;
       });
     });
+  }
+}
+
+function validateCategoryAssignment(
+  input: TransactionCategoryAssignment,
+): TransactionCategoryAssignment {
+  if (typeof input !== "object" || input === null) {
+    throw new TypeError("Transaction category assignment must be an object.");
+  }
+  const { householdId, categoryId } = input;
+  assertAssignmentId(householdId, "Household ID");
+  assertAssignmentId(categoryId, "Category ID");
+  if (
+    !Array.isArray(input.transactionIds) ||
+    input.transactionIds.length === 0
+  ) {
+    throw new TypeError(
+      "Category assignment requires a non-empty Transaction ID array.",
+    );
+  }
+  const transactionIds = [...input.transactionIds];
+  for (const id of transactionIds) assertAssignmentId(id, "Transaction ID");
+  if (new Set(transactionIds).size !== transactionIds.length) {
+    throw new TypeError(
+      "Category assignment requires distinct Transaction IDs.",
+    );
+  }
+  return { householdId, categoryId, transactionIds };
+}
+
+function assertAssignmentId(
+  value: unknown,
+  label: string,
+): asserts value is string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new TypeError(
+      `Category assignment ${label} must be a nonblank string.`,
+    );
   }
 }
 

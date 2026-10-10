@@ -1,36 +1,59 @@
 import type {
   AccountRepository,
+  CategoryRepository,
   MerchantRepository,
   MerchantRuleRepository,
   TransactionRepository,
 } from "@aqchafold/database";
+import type { Category } from "@aqchafold/domain";
 import {
-  buildMerchantReviewQueues,
-  type MerchantReviewGroup,
-  type MerchantReviewQueue,
-} from "./merchant-review-data";
+  addReviewCategoryState,
+  type CategorizedMerchantReviewGroup,
+  type CategorizedMerchantReviewQueue,
+} from "./merchant-review-categories";
+import { buildMerchantReviewQueues } from "./merchant-review-data";
 
 export type SuggestedMerchantReviewAction = {
   readonly householdId: string;
-  readonly group: Extract<MerchantReviewGroup, { status: "suggested" }>;
+  readonly group: Extract<
+    CategorizedMerchantReviewGroup,
+    { status: "suggested" }
+  >;
+};
+
+export type MerchantReviewCategoryAction = {
+  readonly householdId: string;
+  readonly group: CategorizedMerchantReviewGroup;
+  readonly categoryId: string;
 };
 
 export const MERCHANT_CONFIRMATION_FAILURE_MESSAGE =
   "The suggestion could not be confirmed. Please try again.";
+export const CATEGORY_ASSIGNMENT_FAILURE_MESSAGE =
+  "The category could not be changed. Please try again.";
+
+type ReviewActionErrors = {
+  readonly confirmationError?: string;
+  readonly categoryError?: string;
+};
 
 export type MerchantReviewState =
   | { readonly status: "loading" }
-  | { readonly status: "error"; readonly confirmationError?: string }
-  | {
+  | ({ readonly status: "error" } & ReviewActionErrors)
+  | ({
       readonly status: "ready";
-      readonly queues: readonly MerchantReviewQueue[];
+      readonly queues: readonly CategorizedMerchantReviewQueue[];
+      readonly activeCategories: readonly Category[];
       readonly submitting: boolean;
-      readonly confirmationError?: string;
-    };
+    } & ReviewActionErrors);
 
 type ReviewRepositories = {
   readonly accountRepository: Pick<AccountRepository, "list">;
-  readonly transactionRepository: Pick<TransactionRepository, "list">;
+  readonly categoryRepository: Pick<CategoryRepository, "getById" | "list">;
+  readonly transactionRepository: Pick<
+    TransactionRepository,
+    "list" | "assignCategory"
+  >;
   readonly merchantRepository: Pick<MerchantRepository, "getById">;
   readonly merchantRuleRepository: Pick<
     MerchantRuleRepository,
@@ -38,7 +61,7 @@ type ReviewRepositories = {
   >;
 };
 
-/** Presentation orchestration: explicit confirmation writes only a MerchantRule. */
+/** Independent explicit actions: confirm identity or assign current group categories. */
 export function createMerchantReviewController(
   repositories: ReviewRepositories,
   onChange: (state: MerchantReviewState) => void,
@@ -51,10 +74,12 @@ export function createMerchantReviewController(
     onChange(next);
   }
 
-  function reload(confirmationError?: string) {
+  function reload(errors: ReviewActionErrors = {}) {
     try {
+      const transactions = repositories.transactionRepository.list();
+      const categories = repositories.categoryRepository.list();
       const queues = buildMerchantReviewQueues({
-        transactions: repositories.transactionRepository.list(),
+        transactions,
         accounts: repositories.accountRepository.list(),
         findConfirmedMerchantId: (householdId, normalizedDescription) =>
           repositories.merchantRuleRepository.get(
@@ -66,13 +91,30 @@ export function createMerchantReviewController(
       });
       publish({
         status: "ready",
-        queues,
+        queues: addReviewCategoryState({ queues, transactions, categories }),
+        activeCategories: Object.freeze(
+          categories.filter((category) => category.status === "active"),
+        ),
         submitting: false,
-        confirmationError,
+        ...errors,
       });
     } catch {
-      publish({ status: "error", confirmationError });
+      publish({ status: "error", ...errors });
     }
+  }
+
+  function isCurrentGroup(action: {
+    householdId: string;
+    group: CategorizedMerchantReviewGroup;
+  }) {
+    return (
+      state.status === "ready" &&
+      state.queues.some(
+        (queue) =>
+          queue.householdId === action.householdId &&
+          queue.groups.includes(action.group),
+      )
+    );
   }
 
   return {
@@ -84,21 +126,19 @@ export function createMerchantReviewController(
     confirm(action: SuggestedMerchantReviewAction) {
       if (submitting || state.status !== "ready") return;
       if (!isSuggestedAction(action)) {
-        reload(MERCHANT_CONFIRMATION_FAILURE_MESSAGE);
+        reload({ confirmationError: MERCHANT_CONFIRMATION_FAILURE_MESSAGE });
         return;
       }
       // Require the actual current item. Queued taps on old renders cannot write again.
-      if (
-        !state.queues.some(
-          (queue) =>
-            queue.householdId === action.householdId &&
-            queue.groups.includes(action.group),
-        )
-      )
-        return;
+      if (!isCurrentGroup(action)) return;
 
       submitting = true;
-      publish({ ...state, submitting: true, confirmationError: undefined });
+      publish({
+        ...state,
+        submitting: true,
+        confirmationError: undefined,
+        categoryError: undefined,
+      });
       let confirmationError: string | undefined;
       try {
         const { group, householdId } = action;
@@ -117,7 +157,46 @@ export function createMerchantReviewController(
         confirmationError = MERCHANT_CONFIRMATION_FAILURE_MESSAGE;
       } finally {
         // Rebuild from SQLite after either outcome; never remove a group optimistically.
-        reload(confirmationError);
+        reload({ confirmationError });
+        submitting = false;
+      }
+    },
+    applyCategory(action: MerchantReviewCategoryAction) {
+      if (submitting || state.status !== "ready") return;
+      if (!isCategoryAction(action)) {
+        reload({ categoryError: CATEGORY_ASSIGNMENT_FAILURE_MESSAGE });
+        return;
+      }
+      if (!isCurrentGroup(action)) return;
+
+      submitting = true;
+      publish({
+        ...state,
+        submitting: true,
+        confirmationError: undefined,
+        categoryError: undefined,
+      });
+      let categoryError: string | undefined;
+      try {
+        const category = repositories.categoryRepository.getById(
+          action.categoryId,
+        );
+        if (
+          category === undefined ||
+          category.id !== action.categoryId ||
+          category.status !== "active"
+        ) {
+          throw new Error("Assignable Category is unavailable.");
+        }
+        repositories.transactionRepository.assignCategory({
+          householdId: action.householdId,
+          transactionIds: action.group.transactionIds,
+          categoryId: category.id,
+        });
+      } catch {
+        categoryError = CATEGORY_ASSIGNMENT_FAILURE_MESSAGE;
+      } finally {
+        reload({ categoryError });
         submitting = false;
       }
     },
@@ -135,6 +214,22 @@ function isSuggestedAction(action: SuggestedMerchantReviewAction): boolean {
       action.householdId,
       action.group.normalizedDescription,
       action.group.merchantId,
+    ].every((value) => typeof value === "string" && value.trim().length > 0)
+  );
+}
+
+function isCategoryAction(action: MerchantReviewCategoryAction): boolean {
+  return (
+    typeof action === "object" &&
+    action !== null &&
+    typeof action.group === "object" &&
+    action.group !== null &&
+    (action.group.status === "unknown" ||
+      action.group.status === "suggested") &&
+    [
+      action.householdId,
+      action.group.normalizedDescription,
+      action.categoryId,
     ].every((value) => typeof value === "string" && value.trim().length > 0)
   );
 }

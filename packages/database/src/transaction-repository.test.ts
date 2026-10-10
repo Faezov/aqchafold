@@ -21,8 +21,12 @@ import { normalizePaymentProcessorPrefix } from "../../merchants/src/index";
 import { AccountRepository } from "./account-repository";
 import { HouseholdRepository } from "./household-repository";
 import { MerchantRepository } from "./merchant-repository";
+import { MerchantRuleRepository } from "./merchant-rule-repository";
 import * as schema from "./schema";
-import { TransactionRepository } from "./transaction-repository";
+import {
+  TransactionRepository,
+  type TransactionCategoryAssignment,
+} from "./transaction-repository";
 
 // Exercise the production Expo Drizzle driver with real SQLite, without loading
 // Expo's native module in Node. Only its synchronous SQL boundary is adapted.
@@ -591,4 +595,335 @@ describe("TransactionRepository.list with real SQLite and the Expo Drizzle drive
       expect(() => repository.list()).toThrow(diagnostic);
     },
   );
+});
+
+describe("explicit Transaction category assignment", () => {
+  const categorized = new Transaction({
+    id: "categorized-transaction",
+    accountId: baseline.accountId,
+    postingDate: "2400-03-01",
+    transactionDate: "2400-02-29",
+    amount: new Money(-1234, "USD"),
+    origin: "imported",
+    rawDescription: " \tSynthetic Café!\r\nRetained evidence ",
+    merchantId: "test-merchant",
+    categoryId: "test-category",
+  });
+  const assignment: TransactionCategoryAssignment = Object.freeze({
+    householdId: "test-household",
+    transactionIds: Object.freeze([baseline.id, categorized.id]),
+    categoryId: "active-category",
+  });
+  const rows = () =>
+    store.sqlite.prepare("SELECT * FROM transactions ORDER BY id").all();
+  const updates = () =>
+    store.queries.filter((query) => /^update /i.test(query));
+
+  beforeEach(() => {
+    store.database
+      .insert(schema.categories)
+      .values(
+        new Category({
+          id: assignment.categoryId,
+          name: "Active synthetic category",
+          status: "active",
+        }),
+      )
+      .run();
+    repository.create(categorized);
+    store.queries.length = 0;
+  });
+
+  it("assigns and replaces only category_id, persists on re-read, and leaves rules and unselected rows unchanged", () => {
+    const unselected = new Transaction({
+      ...baseline,
+      id: "unselected",
+      origin: "manual",
+    });
+    repository.create(unselected);
+    store.sqlite.exec(
+      readFileSync(
+        new URL("../drizzle/0002_merchant_rules.sql", import.meta.url),
+        "utf8",
+      ),
+    );
+    const rules = new MerchantRuleRepository(store.database);
+    const rule = {
+      householdId: assignment.householdId,
+      normalizedDescription: "Synthetic Café!",
+      merchantId: "test-merchant",
+    };
+    rules.create(rule);
+    const before = rows();
+    const sources = [baseline, categorized, unselected].map((value) => ({
+      ...value,
+    }));
+    store.queries.length = 0;
+
+    repository.assignCategory(assignment);
+
+    expect(boundaries()).toEqual(["begin immediate", "commit"]);
+    expect(updates()).toHaveLength(2);
+    expect(rows()).toEqual(
+      before.map((row) =>
+        assignment.transactionIds.includes(row.id as string)
+          ? { ...row, category_id: assignment.categoryId }
+          : row,
+      ),
+    );
+    const reread = new TransactionRepository(store.database);
+    expect(reread.getById(baseline.id)).toEqual(
+      new Transaction({
+        ...baseline,
+        categoryId: assignment.categoryId,
+        origin: "manual",
+      }),
+    );
+    expect(reread.getById(categorized.id)).toEqual(
+      new Transaction({
+        ...categorized,
+        categoryId: assignment.categoryId,
+        origin: "imported",
+        rawDescription: categorized.rawDescription!,
+      }),
+    );
+    expect(reread.getById(unselected.id)).toEqual(unselected);
+    expect([baseline, categorized, unselected]).toEqual(sources);
+    expect(rules.list(assignment.householdId)).toEqual([rule]);
+    expect(assignment.transactionIds).toEqual([baseline.id, categorized.id]);
+  });
+
+  it("rejects a later missing Transaction before any update", () => {
+    const before = rows();
+    expect(() =>
+      repository.assignCategory({
+        ...assignment,
+        transactionIds: [baseline.id, "missing-transaction"],
+      }),
+    ).toThrow("Category assignment requires existing Transactions.");
+    expect(boundaries()).toEqual(["begin immediate", "rollback"]);
+    expect(updates()).toEqual([]);
+    expect(rows()).toEqual(before);
+  });
+
+  it("rejects a later foreign-Household Transaction and keeps globally modeled Categories usable independently", () => {
+    store.database
+      .insert(schema.households)
+      .values({ id: "other-household", label: "Other synthetic household" })
+      .run();
+    new AccountRepository(store.database).create(
+      new Account({
+        id: "other-account",
+        householdId: "other-household",
+        label: "Other synthetic account",
+        type: "transaction",
+        status: "active",
+        primaryCurrency: "USD",
+        ownership: { kind: "unknown" },
+      }),
+    );
+    const foreign = new Transaction({
+      ...baseline,
+      id: "other-transaction",
+      accountId: "other-account",
+      origin: "manual",
+    });
+    repository.create(foreign);
+    const before = rows();
+    store.queries.length = 0;
+    expect(() =>
+      repository.assignCategory({
+        ...assignment,
+        transactionIds: [baseline.id, foreign.id],
+      }),
+    ).toThrow(
+      "Category assignment requires Transactions in the supplied Household.",
+    );
+    expect(updates()).toEqual([]);
+    expect(rows()).toEqual(before);
+    repository.assignCategory({
+      ...assignment,
+      householdId: "other-household",
+      transactionIds: [foreign.id],
+    });
+    expect(repository.getById(foreign.id)?.categoryId).toBe(
+      assignment.categoryId,
+    );
+    expect(repository.getById(baseline.id)).toEqual(baseline);
+  });
+
+  it("accepts explicit same-Household IDs across currencies without changing Money", () => {
+    new AccountRepository(store.database).create(
+      new Account({
+        id: "aud-account",
+        householdId: assignment.householdId,
+        label: "Synthetic AUD account",
+        type: "transaction",
+        status: "active",
+        primaryCurrency: "AUD",
+        ownership: { kind: "unknown" },
+      }),
+    );
+    const aud = new Transaction({
+      ...baseline,
+      id: "aud-transaction",
+      accountId: "aud-account",
+      amount: new Money(-2345, "AUD"),
+      origin: "manual",
+    });
+    repository.create(aud);
+    repository.assignCategory({
+      ...assignment,
+      transactionIds: [baseline.id, aud.id],
+    });
+    expect(repository.getById(aud.id)).toEqual(
+      new Transaction({
+        ...aud,
+        categoryId: assignment.categoryId,
+        origin: "manual",
+      }),
+    );
+    expect(repository.getById(baseline.id)?.amount).toEqual(baseline.amount);
+    expect(repository.getById(categorized.id)).toEqual(categorized);
+  });
+
+  it.each([
+    ["missing-category", "Category assignment requires an existing Category."],
+    ["test-category", "Category assignment requires an active Category."],
+  ])(
+    "rejects unavailable target %s without changing existing archived references",
+    (categoryId, message) => {
+      const before = rows();
+      expect(() =>
+        repository.assignCategory({ ...assignment, categoryId }),
+      ).toThrow(message);
+      expect(updates()).toEqual([]);
+      expect(rows()).toEqual(before);
+      expect(repository.getById(categorized.id)).toEqual(categorized);
+    },
+  );
+
+  it.each(["householdId", "categoryId"] as const)(
+    "validates %s before SQL",
+    (field) => {
+      for (const value of ["", " \t\n ", null, undefined, 42]) {
+        expect(() =>
+          repository.assignCategory({
+            ...assignment,
+            [field]: value,
+          } as unknown as TransactionCategoryAssignment),
+        ).toThrow(TypeError);
+        expect(store.queries).toEqual([]);
+      }
+    },
+  );
+
+  it.each([
+    ["empty", []],
+    ["duplicate", [baseline.id, baseline.id]],
+    ["blank", [baseline.id, " \t "]],
+    ["non-string", [baseline.id, 42]],
+    ["missing", undefined],
+    ["null", null],
+    ["string", baseline.id],
+  ])("rejects %s Transaction IDs before SQL", (_, transactionIds) => {
+    expect(() =>
+      repository.assignCategory({
+        ...assignment,
+        transactionIds,
+      } as unknown as TransactionCategoryAssignment),
+    ).toThrow(TypeError);
+    expect(store.queries).toEqual([]);
+  });
+
+  it.each([null, undefined, 42, "assignment"])(
+    "rejects non-object request %j before SQL",
+    (input) => {
+      expect(() =>
+        repository.assignCategory(
+          input as unknown as TransactionCategoryAssignment,
+        ),
+      ).toThrow(TypeError);
+      expect(store.queries).toEqual([]);
+    },
+  );
+
+  it("preserves exact opaque IDs without trimming or text normalization", () => {
+    const categoryId = " active-category ";
+    store.database
+      .insert(schema.categories)
+      .values(
+        new Category({
+          id: categoryId,
+          name: "Another synthetic category",
+          status: "active",
+        }),
+      )
+      .run();
+    const transaction = new Transaction({
+      ...baseline,
+      id: " transaction-id ",
+      origin: "manual",
+    });
+    repository.create(transaction);
+    repository.assignCategory({
+      ...assignment,
+      categoryId,
+      transactionIds: [transaction.id],
+    });
+    expect(repository.getById(transaction.id)?.categoryId).toBe(categoryId);
+    expect(repository.getById("transaction-id")).toBeUndefined();
+  });
+
+  it.each(["ABORT", "IGNORE"] as const)(
+    "rolls back the whole batch when a later write raises %s",
+    (failure) => {
+      const before = rows();
+      store.sqlite.exec(`
+      CREATE TRIGGER fail_category_update BEFORE UPDATE OF category_id ON transactions
+      WHEN NEW.id = 'categorized-transaction'
+      BEGIN SELECT RAISE(${failure === "ABORT" ? "ABORT, 'synthetic secret SQL details'" : "IGNORE"}); END;
+    `);
+      let caught: unknown;
+      try {
+        repository.assignCategory(assignment);
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      expect((caught as Error).message).toBe(
+        failure === "ABORT"
+          ? "Transaction category assignment failed."
+          : "Category assignment must update every supplied Transaction.",
+      );
+      expect((caught as Error).cause).toBeUndefined();
+      expect(boundaries()).toEqual(["begin immediate", "rollback"]);
+      expect(updates()).toHaveLength(2);
+      expect(rows()).toEqual(before);
+    },
+  );
+
+  it("rejects invalid stored Category status safely", () => {
+    store.sqlite.exec(
+      "PRAGMA ignore_check_constraints = ON; UPDATE categories SET status = 'invalid-status' WHERE id = 'active-category';",
+    );
+    const before = rows();
+    expect(() => repository.assignCategory(assignment)).toThrow(
+      "Transaction category assignment failed.",
+    );
+    expect(updates()).toEqual([]);
+    expect(rows()).toEqual(before);
+  });
+
+  it("rejects corrupt Transaction evidence instead of silently repairing it", () => {
+    store.sqlite.exec(
+      "UPDATE transactions SET posting_date = '2400-02-30' WHERE id = 'categorized-transaction';",
+    );
+    const before = rows();
+    expect(() => repository.assignCategory(assignment)).toThrow(
+      "Transaction category assignment failed.",
+    );
+    expect(updates()).toEqual([]);
+    expect(rows()).toEqual(before);
+  });
 });

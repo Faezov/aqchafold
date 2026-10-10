@@ -56,9 +56,10 @@ digit strings, without floating-point monetary conversion. Other currencies show
 exact signed minor units because currency-scale metadata is not implemented.
 
 Home also opens a Merchant review screen using the same root screen
-state and database connection. Each entry reads current Transactions and Accounts
-and rebuilds the queue; no review data is cached across entries. Both Back controls
-return Home, preserving the selected statement and retained import result.
+state and database connection. Each entry reads current Transactions, Accounts,
+and Categories and rebuilds the queue; no review data is cached across entries.
+Both Back controls return Home, preserving the selected statement and retained
+import result.
 
 The presentation helper `buildMerchantReviewQueues()` omits Transactions without a
 raw description and empty `normalizeMerchantDescription()` results. Each
@@ -103,7 +104,8 @@ retained only in internal presentation state, never rendered. Loading, empty, an
 fixed error states expose no raw source fields or database diagnostics.
 
 On Android, suggested groups show `Suggested: <canonical display name>` and a
-Confirm button; unknown groups remain read-only. iOS confirmation remains deferred.
+Confirm button; unknown groups have no Merchant confirmation action. iOS
+confirmation remains deferred.
 `createMerchantReviewController().confirm()` accepts a typed suggested item with
 its internal Household context. It validates nonblank action fields, requires the
 actual suggested group from the current queue, and rechecks the canonical Merchant
@@ -121,6 +123,37 @@ and conflicting existing keys are rejected without overwrite. Failed confirmatio
 shows fixed text without inspecting error strings and reloads SQLite source truth;
 a failed reload shows the existing fixed load-error state. Suggestions themselves
 are still derived afresh, rather than persisted as unconfirmed rules.
+
+Category assignment is independent of Merchant confirmation. The pure
+`addReviewCategoryState()` helper uses each group's exact `transactionIds` and the
+same Transaction snapshot to report Uncategorized, a canonical Category name, or
+Mixed categories (including categorized and uncategorized records together).
+Archived current Categories remain readable by name. Neither Merchant identity
+nor display text supplies a Category.
+
+On Android, both unknown and suggested groups offer persisted active Categories
+from `CategoryRepository.list()` in repository order. Category names are displayed;
+IDs stay internal. Choosing an option does not write. Apply is disabled until an
+option is selected, and an empty active list shows “No categories available”
+without creating defaults. Category assignment controls on iOS remain deferred.
+
+`createMerchantReviewController().applyCategory({ householdId, group, categoryId })`
+requires the actual current review group and rechecks the selected persisted
+Category by ID and active status. It calls
+`TransactionRepository.assignCategory({ householdId, transactionIds: group.transactionIds, categoryId })`
+to atomically change only those Transactions' `category_id`, with Household
+membership guarded through their Accounts. Categories remain globally modeled in
+v0.1. Other review groups, currencies, Households, and historical Merchant-evidence
+Transactions excluded from the selected group are unaffected. MerchantRules and
+all other Transaction fields remain unchanged.
+
+Apply and Confirm share the submission guard. Neither updates the queue
+optimistically; both reload SQLite after persistence or failure. Reloaded groups
+invalidate old selections and stale taps. Assignment failures show fixed text,
+and a failed reload shows the fixed load-error state. Confirm can remove a group
+without assigning any Category. This explicit correction persists on existing
+Transactions only; no future-category default or categorization rule is learned.
+“Remember correction permanently” remains a separate task.
 
 Home's Choose statement PDF control opens Android's system document picker using
 `expo-document-picker`, installed with

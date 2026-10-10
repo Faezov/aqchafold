@@ -1,14 +1,46 @@
 import type { MerchantRule } from "@aqchafold/database";
-import { Account, Merchant, Money, Transaction } from "@aqchafold/domain";
+import {
+  Account,
+  Category,
+  Merchant,
+  Money,
+  Transaction,
+} from "@aqchafold/domain";
 import { describe, expect, it, vi } from "vitest";
 import {
   createMerchantReviewController,
+  CATEGORY_ASSIGNMENT_FAILURE_MESSAGE,
   MERCHANT_CONFIRMATION_FAILURE_MESSAGE,
   type MerchantReviewState,
+  type MerchantReviewCategoryAction,
   type SuggestedMerchantReviewAction,
 } from "./merchant-review-controller";
 
-function setup() {
+function withCategory(
+  transaction: Transaction,
+  categoryId: string,
+): Transaction {
+  const options = { ...transaction, categoryId };
+  return transaction.origin === "imported"
+    ? new Transaction({
+        ...options,
+        origin: "imported",
+        rawDescription: transaction.rawDescription!,
+      })
+    : new Transaction({ ...options, origin: "manual" });
+}
+
+function setup(
+  categories = [
+    new Category({ id: "category-a", name: "Alpha purpose", status: "active" }),
+    new Category({
+      id: "archived",
+      name: "Beta past purpose",
+      status: "archived",
+    }),
+    new Category({ id: "category-b", name: "Gamma purpose", status: "active" }),
+  ],
+) {
   const merchant = new Merchant({
     id: "canonical-id",
     displayName: "Canonical Café!",
@@ -54,6 +86,26 @@ function setup() {
     rules.push({ ...rule });
   });
   const list = vi.fn(() => transactions);
+  const getCategoryById = vi.fn((id: string) =>
+    categories.find((category) => category.id === id),
+  );
+  const assignCategory = vi.fn(
+    (input: {
+      householdId: string;
+      transactionIds: readonly string[];
+      categoryId: string;
+    }) => {
+      for (const id of input.transactionIds) {
+        const index = transactions.findIndex(
+          (transaction) => transaction.id === id,
+        );
+        transactions[index] = withCategory(
+          transactions[index],
+          input.categoryId,
+        );
+      }
+    },
+  );
   const getById = vi.fn((id: string) =>
     id === merchant.id ? merchant : undefined,
   );
@@ -62,7 +114,8 @@ function setup() {
   const controller = createMerchantReviewController(
     {
       accountRepository: { list: () => [account] },
-      transactionRepository: { list },
+      categoryRepository: { list: () => categories, getById: getCategoryById },
+      transactionRepository: { list, assignCategory },
       merchantRepository: { getById },
       merchantRuleRepository: {
         create,
@@ -91,10 +144,22 @@ function setup() {
       throw new Error("Expected a suggestion.");
     return { householdId: queue.householdId, group };
   }
+  function categoryAction(
+    categoryId = "category-a",
+    status: "suggested" | "unknown" = "suggested",
+  ): MerchantReviewCategoryAction {
+    const queue = ready().queues[0];
+    const group = queue.groups.find((item) => item.status === status)!;
+    return { householdId: queue.householdId, group, categoryId };
+  }
   return {
     controller,
     ready,
     action,
+    categoryAction,
+    categories,
+    getCategoryById,
+    assignCategory,
     create,
     list,
     getById,
@@ -285,6 +350,289 @@ describe("Merchant suggestion confirmation controller", () => {
       expect(JSON.stringify(fixture.changes)).not.toContain("SECRET");
       fixture.controller.confirm(action);
       expect(fixture.create).toHaveBeenCalledTimes(1);
+    },
+  );
+});
+
+describe("Merchant review category assignment controller", () => {
+  it("offers persisted active Categories in repository order and displays an archived current Category", () => {
+    const fixture = setup();
+    fixture.transactions[1] = withCategory(fixture.transactions[1], "archived");
+    fixture.controller.load();
+    expect(fixture.ready().activeCategories).toEqual([
+      fixture.categories[0],
+      fixture.categories[2],
+    ]);
+    expect(fixture.categoryAction().group.categoryState).toEqual({
+      kind: "categorized",
+      category: fixture.categories[1],
+    });
+    expect(fixture.assignCategory).not.toHaveBeenCalled();
+  });
+
+  it("loads an explicit empty choice list without seeding or assigning anything", () => {
+    const fixture = setup([]);
+    fixture.controller.load();
+    expect(fixture.ready().activeCategories).toEqual([]);
+    expect(fixture.categoryAction().group.categoryState).toEqual({
+      kind: "uncategorized",
+    });
+    expect(fixture.assignCategory).not.toHaveBeenCalled();
+    expect(fixture.create).not.toHaveBeenCalled();
+  });
+
+  it("assigns by canonical ID to exact current group IDs and derives the reloaded state", () => {
+    const fixture = setup();
+    const before = fixture.transactions.map((transaction) => ({
+      ...transaction,
+    }));
+    fixture.controller.load();
+    const action = fixture.categoryAction();
+    fixture.controller.applyCategory(action);
+    expect(fixture.getCategoryById).toHaveBeenCalledExactlyOnceWith(
+      "category-a",
+    );
+    expect(fixture.assignCategory).toHaveBeenCalledExactlyOnceWith({
+      householdId: "household",
+      transactionIds: action.group.transactionIds,
+      categoryId: "category-a",
+    });
+    expect(fixture.categoryAction().group.categoryState).toEqual({
+      kind: "categorized",
+      category: fixture.categories[0],
+    });
+    expect(fixture.categoryAction().group).not.toBe(action.group);
+    expect(
+      fixture.transactions.map((transaction) => ({ ...transaction })),
+    ).toEqual(
+      before.map((transaction) =>
+        transaction.id === "pending"
+          ? { ...transaction, categoryId: "category-a" }
+          : transaction,
+      ),
+    );
+    expect(fixture.list).toHaveBeenCalledTimes(2);
+    expect(fixture.rules).toEqual([]);
+    expect(fixture.create).not.toHaveBeenCalled();
+  });
+
+  it("changes an existing Category without teaching future matching Transactions", () => {
+    const fixture = setup();
+    fixture.controller.load();
+    fixture.controller.applyCategory(fixture.categoryAction());
+    fixture.controller.applyCategory(fixture.categoryAction("category-b"));
+    expect(fixture.transactions[1].categoryId).toBe("category-b");
+    fixture.transactions.push(
+      new Transaction({
+        id: "future",
+        accountId: "account",
+        origin: "manual",
+        postingDate: "2400-03-03",
+        amount: new Money(-100, "AUD"),
+        rawDescription: "Synthetic Shop",
+      }),
+    );
+    fixture.controller.load();
+    expect(fixture.transactions[3].categoryId).toBeUndefined();
+    expect(fixture.categoryAction().group.categoryState).toEqual({
+      kind: "mixed",
+    });
+    expect(fixture.rules).toEqual([]);
+    expect(fixture.create).not.toHaveBeenCalled();
+  });
+
+  it("allows unknown groups to be categorized without confirming a Merchant", () => {
+    const fixture = setup();
+    fixture.controller.load();
+    fixture.controller.applyCategory(
+      fixture.categoryAction("category-a", "unknown"),
+    );
+    expect(fixture.transactions[2].categoryId).toBe("category-a");
+    expect(fixture.transactions[2].merchantId).toBeUndefined();
+    expect(fixture.categoryAction("category-a", "unknown").group.status).toBe(
+      "unknown",
+    );
+    expect(fixture.create).not.toHaveBeenCalled();
+  });
+
+  it("prevents reentrant, repeated and competing confirmation writes while retaining source state until persistence", () => {
+    const fixture = setup();
+    fixture.controller.load();
+    const action = fixture.categoryAction();
+    const confirm = fixture.action();
+    const write = fixture.assignCategory.getMockImplementation()!;
+    fixture.assignCategory.mockImplementationOnce((input) => {
+      expect(fixture.ready().submitting).toBe(true);
+      expect(action.group.categoryState).toEqual({ kind: "uncategorized" });
+      expect(fixture.ready().queues[0].groups).toContain(action.group);
+      fixture.controller.applyCategory(action);
+      fixture.controller.confirm(confirm);
+      write(input);
+    });
+    fixture.controller.applyCategory(action);
+    fixture.controller.applyCategory(action);
+    fixture.controller.confirm(confirm);
+    expect(fixture.assignCategory).toHaveBeenCalledTimes(1);
+    expect(fixture.create).not.toHaveBeenCalled();
+    expect(fixture.ready().submitting).toBe(false);
+    fixture.controller.confirm(fixture.action());
+    expect(fixture.create).toHaveBeenCalledTimes(1);
+    expect(fixture.transactions[1].categoryId).toBe("category-a");
+  });
+
+  it("confirmation independently blocks category writes and does not assign implicitly", () => {
+    const fixture = setup();
+    fixture.controller.load();
+    const categoryAction = fixture.categoryAction();
+    const write = fixture.create.getMockImplementation()!;
+    fixture.create.mockImplementationOnce((rule) => {
+      fixture.controller.applyCategory(categoryAction);
+      write(rule);
+    });
+    fixture.controller.confirm(fixture.action());
+    fixture.controller.applyCategory(categoryAction);
+    expect(fixture.assignCategory).not.toHaveBeenCalled();
+    expect(
+      fixture.transactions.every(
+        (transaction) => transaction.categoryId === undefined,
+      ),
+    ).toBe(true);
+    expect(
+      fixture
+        .ready()
+        .queues[0].groups.map((group) => group.normalizedDescription),
+    ).toEqual(["Other Shop"]);
+  });
+
+  it("rejects copied groups, unrelated Household contexts and stale snapshots", () => {
+    const fixture = setup();
+    fixture.controller.load();
+    const action = fixture.categoryAction();
+    fixture.controller.applyCategory({ ...action, group: { ...action.group } });
+    fixture.controller.applyCategory({
+      ...action,
+      householdId: "other-household",
+    });
+    fixture.controller.load();
+    fixture.controller.applyCategory(action);
+    expect(fixture.assignCategory).not.toHaveBeenCalled();
+    expect(fixture.getCategoryById).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    undefined,
+    new Category({
+      id: "category-a",
+      name: "Past purpose",
+      status: "archived",
+    }),
+    new Category({
+      id: "different-id",
+      name: "Same display",
+      status: "active",
+    }),
+  ])("rechecks the selected Category before writing", (category) => {
+    const fixture = setup();
+    fixture.controller.load();
+    fixture.getCategoryById.mockReturnValueOnce(category);
+    fixture.controller.applyCategory(fixture.categoryAction());
+    expect(fixture.assignCategory).not.toHaveBeenCalled();
+    expect(fixture.ready().categoryError).toBe(
+      CATEGORY_ASSIGNMENT_FAILURE_MESSAGE,
+    );
+  });
+
+  it.each(["householdId", "categoryId", "normalizedDescription"] as const)(
+    "rejects invalid %s",
+    (field) => {
+      for (const value of ["", " \t\n ", null, 42]) {
+        const fixture = setup();
+        fixture.controller.load();
+        const action = fixture.categoryAction();
+        const invalid =
+          field === "normalizedDescription"
+            ? {
+                ...action,
+                group: { ...action.group, normalizedDescription: value },
+              }
+            : { ...action, [field]: value };
+        fixture.controller.applyCategory(
+          invalid as MerchantReviewCategoryAction,
+        );
+        expect(fixture.assignCategory).not.toHaveBeenCalled();
+        expect(fixture.ready().categoryError).toBe(
+          CATEGORY_ASSIGNMENT_FAILURE_MESSAGE,
+        );
+      }
+    },
+  );
+
+  it.each([
+    null,
+    undefined,
+    { householdId: "household", group: null, categoryId: "category-a" },
+  ])("rejects malformed category actions", (action) => {
+    const fixture = setup();
+    fixture.controller.load();
+    fixture.controller.applyCategory(
+      action as unknown as MerchantReviewCategoryAction,
+    );
+    expect(fixture.assignCategory).not.toHaveBeenCalled();
+    expect(fixture.ready().categoryError).toBe(
+      CATEGORY_ASSIGNMENT_FAILURE_MESSAGE,
+    );
+  });
+
+  it("sanitizes persistence failure, reloads unchanged source truth and allows a fresh retry", () => {
+    const fixture = setup();
+    fixture.controller.load();
+    const action = fixture.categoryAction();
+    const before = fixture.transactions.map((transaction) => ({
+      ...transaction,
+    }));
+    fixture.assignCategory.mockImplementationOnce(() => {
+      throw new Error("SECRET SQL parameters");
+    });
+    fixture.controller.applyCategory(action);
+    expect(fixture.ready().categoryError).toBe(
+      CATEGORY_ASSIGNMENT_FAILURE_MESSAGE,
+    );
+    expect(fixture.categoryAction().group.categoryState).toEqual({
+      kind: "uncategorized",
+    });
+    expect(fixture.transactions).toEqual(before);
+    expect(fixture.list).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(fixture.changes)).not.toContain("SECRET");
+    fixture.controller.applyCategory(action);
+    expect(fixture.assignCategory).toHaveBeenCalledTimes(1);
+    fixture.controller.applyCategory(fixture.categoryAction());
+    expect(fixture.assignCategory).toHaveBeenCalledTimes(2);
+    expect(fixture.ready().categoryError).toBeUndefined();
+  });
+
+  it.each([true, false])(
+    "shows fixed source-read failure after assignment success=%s",
+    (succeeds) => {
+      const fixture = setup();
+      fixture.controller.load();
+      const action = fixture.categoryAction();
+      fixture.list.mockImplementationOnce(() => {
+        throw new Error("SECRET read failure");
+      });
+      if (!succeeds)
+        fixture.assignCategory.mockImplementationOnce(() => {
+          throw new Error("SECRET write failure");
+        });
+      fixture.controller.applyCategory(action);
+      expect(fixture.state()).toEqual({
+        status: "error",
+        categoryError: succeeds
+          ? undefined
+          : CATEGORY_ASSIGNMENT_FAILURE_MESSAGE,
+      });
+      expect(JSON.stringify(fixture.changes)).not.toContain("SECRET");
+      fixture.controller.applyCategory(action);
+      expect(fixture.assignCategory).toHaveBeenCalledTimes(1);
     },
   );
 });

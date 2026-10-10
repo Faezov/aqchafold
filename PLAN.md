@@ -152,7 +152,7 @@ raw description
 
 - [X] Define merchant normalization interface
 - [X] Normalize payment processor prefixes
-- [ ] Normalize obvious location/noise suffixes
+- [X] Normalize obvious location/noise suffixes
 - [X] Preserve original transaction description
 - [X] Implement merchant aliases
 - [X] Implement persistent merchant rules
@@ -161,8 +161,8 @@ raw description
 - [X] Aggregate unknown transactions by merchant
 - [X] Rank review queue by financial importance
 - [X] Create merchant review screen
-- [ ] Allow user to confirm a suggestion
-- [ ] Allow user to change a category
+- [X] Allow user to confirm a suggestion
+- [X] Allow user to change a category
 - [ ] Remember correction permanently
 
 Milestone:

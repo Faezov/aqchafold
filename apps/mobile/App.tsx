@@ -1,5 +1,6 @@
 import {
   AccountRepository,
+  CategoryRepository,
   createLocalAccount,
   HouseholdRepository,
   ImportRepository,
@@ -29,6 +30,7 @@ type AppState =
       status: "ready";
       database: ReturnType<typeof openLedgeraseDatabase>;
       accountRepository: AccountRepository;
+      categoryRepository: CategoryRepository;
       householdRepository: HouseholdRepository;
       importRepository: ImportRepository;
       transactionRepository: TransactionRepository;
@@ -156,6 +158,7 @@ export default function App() {
           await migrateLedgeraseDatabase(database);
           if (active) {
             const accountRepository = new AccountRepository(database);
+            const categoryRepository = new CategoryRepository(database);
             const householdRepository = new HouseholdRepository(database);
             const importRepository = new ImportRepository(database);
             const transactionRepository = new TransactionRepository(database);
@@ -167,6 +170,7 @@ export default function App() {
               status: "ready",
               database,
               accountRepository,
+              categoryRepository,
               householdRepository,
               importRepository,
               transactionRepository,
@@ -246,6 +250,7 @@ export default function App() {
       return (
         <MerchantReviewScreen
           accountRepository={state.accountRepository}
+          categoryRepository={state.categoryRepository}
           transactionRepository={state.transactionRepository}
           merchantRepository={state.merchantRepository}
           merchantRuleRepository={state.merchantRuleRepository}

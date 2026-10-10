@@ -7,6 +7,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { URL } from "node:url";
 import {
   Account,
+  Category,
   Household,
   Merchant,
   Money,
@@ -16,6 +17,7 @@ import { drizzle } from "drizzle-orm/expo-sqlite/driver";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createMerchantReviewController,
+  CATEGORY_ASSIGNMENT_FAILURE_MESSAGE,
   MERCHANT_CONFIRMATION_FAILURE_MESSAGE,
   type MerchantReviewState,
 } from "../../../apps/mobile/src/presentation/merchant-review-controller";
@@ -25,6 +27,7 @@ import {
   resolveMerchantIdentity,
 } from "../../merchants/src/index";
 import { AccountRepository } from "./account-repository";
+import { CategoryRepository } from "./category-repository";
 import { HouseholdRepository } from "./household-repository";
 import { MerchantRepository } from "./merchant-repository";
 import {
@@ -146,6 +149,7 @@ function confirmationReview() {
   }
   const repositories = {
     accountRepository,
+    categoryRepository: new CategoryRepository(store.database),
     transactionRepository,
     merchantRepository: new MerchantRepository(store.database),
     merchantRuleRepository: repository,
@@ -161,6 +165,54 @@ function confirmationReview() {
     rawDescription,
     state: () => states.at(-1)!,
   };
+}
+
+function categoryReview() {
+  const review = confirmationReview();
+  const target = new Category({
+    id: "target-category",
+    name: "Target synthetic category",
+    status: "active",
+  });
+  const existing = new Category({
+    id: "existing-category",
+    name: "Existing synthetic category",
+    status: "active",
+  });
+  const archived = new Category({
+    id: "archived-category",
+    name: "Archived synthetic category",
+    status: "archived",
+  });
+  store.database
+    .insert(schema.categories)
+    .values([target, existing, archived])
+    .run();
+  for (const [id, rawDescription, categoryId] of [
+    ["pending-a-aud-second", review.rawDescription, archived.id],
+    ["other-a-second", "Other Synthetic Shop", existing.id],
+  ]) {
+    review.repositories.transactionRepository.create(
+      new Transaction({
+        id,
+        accountId: "account-a-aud",
+        postingDate: "2400-03-02",
+        transactionDate: "2400-02-29",
+        amount: new Money(-350, "AUD"),
+        origin: "imported",
+        rawDescription,
+        categoryId,
+      }),
+    );
+  }
+  review.controller.load();
+  return { ...review, target, existing, archived };
+}
+
+function readyState(review: ReturnType<typeof confirmationReview>) {
+  const state = review.state();
+  if (state.status !== "ready") throw new Error("Expected ready review data.");
+  return state;
 }
 
 function suggestedAction(
@@ -610,6 +662,202 @@ describe("MerchantRuleRepository with real SQLite", () => {
           ?.groups[0].status,
       ).toBe("suggested");
       expect(review.repositories.transactionRepository.list()).toEqual(before);
+    },
+  );
+
+  it("assigns category to exact reviewed IDs and reloads without changing other groups, history, currencies, Households or rules", () => {
+    const review = categoryReview();
+    repository.create(
+      rule({ normalizedDescription: "Unrelated Synthetic Descriptor" }),
+    );
+    const rulesBefore = repository.list("household-a");
+    const rowsBefore = store.sqlite
+      .prepare("SELECT * FROM transactions ORDER BY id")
+      .all();
+    const action = suggestedAction(review.state());
+    expect(action.group.transactionIds).toEqual([
+      "pending-a-aud",
+      "pending-a-aud-second",
+    ]);
+    expect(action.group.categoryState).toEqual({ kind: "mixed" });
+    expect(readyState(review).activeCategories).toEqual([
+      review.existing,
+      review.target,
+    ]);
+    const assign = vi.spyOn(
+      review.repositories.transactionRepository,
+      "assignCategory",
+    );
+
+    review.controller.applyCategory({
+      ...action,
+      categoryId: review.target.id,
+    });
+
+    expect(assign).toHaveBeenCalledExactlyOnceWith({
+      householdId: "household-a",
+      transactionIds: action.group.transactionIds,
+      categoryId: review.target.id,
+    });
+    expect(
+      store.sqlite.prepare("SELECT * FROM transactions ORDER BY id").all(),
+    ).toEqual(
+      rowsBefore.map((row) =>
+        action.group.transactionIds.includes(row.id as string)
+          ? { ...row, category_id: review.target.id }
+          : row,
+      ),
+    );
+    expect(repository.list("household-a")).toEqual(rulesBefore);
+    expect(repository.list("household-b")).toEqual([]);
+    expect(suggestedAction(review.state()).group.categoryState).toEqual({
+      kind: "categorized",
+      category: review.target,
+    });
+    expect(
+      suggestedAction(review.state(), "household-a", "USD").group.categoryState,
+    ).toEqual({ kind: "uncategorized" });
+    expect(
+      suggestedAction(review.state(), "household-b").group.categoryState,
+    ).toEqual({ kind: "uncategorized" });
+    expect(
+      review.repositories.transactionRepository.getById("pending-a-aud")
+        ?.rawDescription,
+    ).toBe(review.rawDescription);
+    const reopenedStates: MerchantReviewState[] = [];
+    createMerchantReviewController(
+      {
+        ...review.repositories,
+        categoryRepository: new CategoryRepository(store.database),
+        transactionRepository: new TransactionRepository(store.database),
+      },
+      (value) => reopenedStates.push(value),
+    ).load();
+    expect(reopenedStates.at(-1)).toEqual(review.state());
+  });
+
+  it("changes an unknown group's category independently and keeps Merchant confirmation from assigning other categories", () => {
+    const review = categoryReview();
+    const queue = readyState(review).queues.find(
+      (value) =>
+        value.householdId === "household-a" && value.currency === "AUD",
+    )!;
+    const group = queue.groups.find((value) => value.status === "unknown")!;
+    expect(group.categoryState).toEqual({ kind: "mixed" });
+    const assign = vi.spyOn(
+      review.repositories.transactionRepository,
+      "assignCategory",
+    );
+    const create = vi.spyOn(repository, "create");
+    review.controller.applyCategory({
+      householdId: queue.householdId,
+      group,
+      categoryId: review.target.id,
+    });
+    expect(assign).toHaveBeenCalledExactlyOnceWith({
+      householdId: queue.householdId,
+      transactionIds: ["other-a", "other-a-second"],
+      categoryId: review.target.id,
+    });
+    expect(
+      review.repositories.transactionRepository.getById("other-a-second")
+        ?.categoryId,
+    ).toBe(review.target.id);
+    expect(create).not.toHaveBeenCalled();
+    expect(suggestedAction(review.state()).group.categoryState).toEqual({
+      kind: "mixed",
+    });
+    const rowsBeforeConfirmation = store.sqlite
+      .prepare("SELECT * FROM transactions ORDER BY id")
+      .all();
+
+    review.controller.confirm(suggestedAction(review.state()));
+
+    expect(create).toHaveBeenCalledExactlyOnceWith(
+      rule({ normalizedDescription: "Synthetic Descriptor" }),
+    );
+    expect(assign).toHaveBeenCalledTimes(1);
+    expect(
+      store.sqlite.prepare("SELECT * FROM transactions ORDER BY id").all(),
+    ).toEqual(rowsBeforeConfirmation);
+    const retained = readyState(review).queues.find(
+      (value) => value.householdId === "household-a",
+    )!;
+    expect(retained.groups).toHaveLength(1);
+    expect(retained.groups[0]).toMatchObject({
+      normalizedDescription: "Other Synthetic Shop",
+      status: "unknown",
+      categoryState: { kind: "categorized", category: review.target },
+    });
+  });
+
+  it("rolls back an entire reviewed group after a later category write failure and reloads sanitized source truth", () => {
+    const review = categoryReview();
+    const action = suggestedAction(review.state());
+    const rowsBefore = store.sqlite
+      .prepare("SELECT * FROM transactions ORDER BY id")
+      .all();
+    store.sqlite.exec(`
+      CREATE TRIGGER fail_review_category BEFORE UPDATE OF category_id ON transactions
+      WHEN NEW.id = 'pending-a-aud-second'
+      BEGIN SELECT RAISE(ABORT, 'synthetic secret SQL details'); END;
+    `);
+    store.queries.length = 0;
+
+    review.controller.applyCategory({
+      ...action,
+      categoryId: review.target.id,
+    });
+
+    expect(
+      store.queries.filter((query) => /^update /i.test(query)),
+    ).toHaveLength(2);
+    expect(
+      store.sqlite.prepare("SELECT * FROM transactions ORDER BY id").all(),
+    ).toEqual(rowsBefore);
+    expect(readyState(review).categoryError).toBe(
+      CATEGORY_ASSIGNMENT_FAILURE_MESSAGE,
+    );
+    expect(readyState(review).submitting).toBe(false);
+    expect(suggestedAction(review.state()).group.categoryState).toEqual({
+      kind: "mixed",
+    });
+    expect(JSON.stringify(review.state())).not.toContain("secret SQL");
+    expect(repository.list("household-a")).toEqual([]);
+    store.sqlite.exec("DROP TRIGGER fail_review_category;");
+    review.controller.applyCategory({
+      ...suggestedAction(review.state()),
+      categoryId: review.target.id,
+    });
+    expect(readyState(review).categoryError).toBeUndefined();
+    expect(suggestedAction(review.state()).group.categoryState).toEqual({
+      kind: "categorized",
+      category: review.target,
+    });
+  });
+
+  it.each(["missing-category", "archived-category"])(
+    "rejects unavailable assignment %s without writing or altering current categories",
+    (categoryId) => {
+      const review = categoryReview();
+      const rowsBefore = store.sqlite
+        .prepare("SELECT * FROM transactions ORDER BY id")
+        .all();
+      const assign = vi.spyOn(
+        review.repositories.transactionRepository,
+        "assignCategory",
+      );
+      review.controller.applyCategory({
+        ...suggestedAction(review.state()),
+        categoryId,
+      });
+      expect(assign).not.toHaveBeenCalled();
+      expect(readyState(review).categoryError).toBe(
+        CATEGORY_ASSIGNMENT_FAILURE_MESSAGE,
+      );
+      expect(
+        store.sqlite.prepare("SELECT * FROM transactions ORDER BY id").all(),
+      ).toEqual(rowsBefore);
     },
   );
 

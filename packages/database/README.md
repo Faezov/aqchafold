@@ -62,6 +62,9 @@ Foreign keys cover Member/Account/Import to Household, Import's optional confirm
 Account, Transaction's Account and optional Merchant/Category, and ownership
 Member rows. No cascading deletes erase history. Merchant and Category currently
 have no Household field in the implemented domain; none is invented here.
+Category definitions remain globally modeled within the local database in v0.1.
+Category reads have no Household scope; assignment guards Transaction membership
+through each Account's Household independently.
 
 `merchant_rules` stores local, durable, user-confirmed Household-scoped exact
 mappings after textual normalization:
@@ -74,9 +77,8 @@ No separate rule ID is needed for the current exact-key operations. The forward
 ## Repositories
 
 `HouseholdRepository`, `MemberRepository`, `AccountRepository`,
-`TransactionRepository`, `MerchantRepository`, `MerchantRuleRepository`, and
-`ImportRepository` take an
-already-open Drizzle handle.
+`TransactionRepository`, `CategoryRepository`, `MerchantRepository`,
+`MerchantRuleRepository`, and `ImportRepository` take an already-open Drizzle handle.
 They do not open connections or apply migrations; tables must exist before use.
 Their synchronous APIs are:
 
@@ -92,6 +94,9 @@ new TransactionRepository(database).create(transaction); // void
 new TransactionRepository(database).createMany(transactions); // void
 new TransactionRepository(database).getById(id); // Transaction | undefined
 new TransactionRepository(database).list(); // readonly Transaction[]
+new TransactionRepository(database).assignCategory({ householdId, transactionIds, categoryId }); // void; atomic
+new CategoryRepository(database).getById(id); // Category | undefined
+new CategoryRepository(database).list(); // readonly Category[]; name then ID order
 new MerchantRepository(database).create(merchant); // void
 new MerchantRepository(database).getById(id); // Merchant | undefined
 new MerchantRuleRepository(database).create(rule); // void
@@ -137,6 +142,15 @@ ordered by label then ID. It reads a coherent snapshot and uses the same canonic
 ownership and reference validation as single-Account reads. An invalid record
 fails the read rather than returning a partial list or repairing its meaning.
 
+`CategoryRepository` is read-only. `getById()` requires a nonblank string ID,
+performs an exact lookup without trimming, and returns `undefined` when absent.
+`list()` returns all persisted Categories, including archived ones, in SQLite
+BINARY name ascending then ID ascending order. Both reconstruct canonical
+`Category` objects, validating names, IDs, and `active`/`archived` status. Invalid
+stored rows and unexpected database errors produce fixed sanitized errors, without
+SQL, parameters, or attached causes. No Category creation, editing, deletion, or
+default catalog is provided.
+
 Transaction creation validates through `Transaction` and checks references before
 inserting in an immediate transaction. Reads use one transaction, reconstruct
 `Money` and `Transaction`, and repeat reference checks. The Account must exist and
@@ -158,6 +172,29 @@ Any invalid record, missing reference, currency mismatch, duplicate supplied ID,
 or SQLite constraint failure throws and rolls back all new rows in that batch.
 Previously stored records remain unchanged; there is no skip, upsert, or update.
 Primary-key uniqueness enforces Transaction IDs and does not detect repeat imports.
+
+`TransactionRepository.assignCategory({ householdId, transactionIds, categoryId })`
+explicitly assigns an existing active Category to the exact supplied Transactions.
+Household and Category IDs must be nonblank; Transaction IDs must be a non-empty
+array of distinct nonblank strings. IDs are preserved exactly. The exported
+`TransactionCategoryAssignment` type describes this readonly input.
+
+One immediate SQLite transaction validates the global Category and every existing
+Transaction before any update. Canonical Transaction/reference checks and
+`AccountRepository` reads validate each Account and require its Household to match
+the supplied Household. Explicit IDs may span that Household's currencies; no
+currency conversion or description matching occurs. Only `transactions.category_id`
+is updated. Merchant association, raw descriptions, Money, dates, Account, origin,
+and all unselected records remain unchanged. Each update must affect its row;
+missing records, foreign-Household records, suppressed writes, or database failures
+roll back the whole batch. Errors contain fixed diagnostics without raw parameters
+or underlying SQL causes.
+
+Archived Categories remain readable and valid historical references; this
+assignment operation accepts only active targets, without reactivating Categories.
+No MerchantRule or reusable category rule is created or changed. This persists
+canonical assignments on existing Transactions only; no categorization learning,
+future defaults, or UI behavior is added.
 
 The caller passes converted canonical Transactions to this repository; the
 database API accepts no ParsedStatement or bank-specific evidence. CommBank
