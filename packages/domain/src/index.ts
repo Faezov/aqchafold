@@ -4,6 +4,7 @@ export {
   CategoryBudget,
   type CategoryBudgetOptions,
   type CategoryBudgetRole,
+  type SpendingCharacter,
 } from "./category-budget";
 export { Transaction, type TransactionOptions } from "./transaction";
 export {

@@ -177,7 +177,7 @@ Target:
 
 - [X] Define budget period
 - [X] Define category budget
-- [ ] Separate essential spending
+- [X] Separate essential spending
 - [ ] Separate discretionary spending
 - [ ] Separate irregular spending
 - [ ] Calculate monthly category totals

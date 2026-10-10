@@ -591,7 +591,8 @@ Dining might receive discretionary treatment; Medical might be essential or
 irregular; Transport may receive different treatment depending on context.
 
 Such treatment can vary without changing Category identity or the Transaction's
-category assignment. Budget is defined below; concrete budget-character
+category assignment. CategoryBudget defines explicit essential/discretionary
+planning character for spending allocations below; broader budget-character
 representation remains deferred.
 
 ### System-provided and user-created Categories
@@ -684,7 +685,7 @@ duplicate amounts to simulate split classification.
 - Categorization algorithms, reusable rule models, confidence thresholds, or review UI.
 - Split allocations, category hierarchy, or roll-up/reporting calculations.
 - A complete default taxonomy, localized naming policy, or catalog migration scheme.
-- Budget-character representation, Member attribution, or other related domain models.
+- Broader budget-character representation, Member attribution, or other related domain models.
 - Concrete APIs, persistence schemas, or assignment-history storage formats.
 
 ### Open questions
@@ -1382,14 +1383,27 @@ independent value intended for inclusion in a Budget, without its own identity,
 Budget ID, Household, or BudgetPeriod. The containing Budget supplies shared
 context and enforces its currency boundary; the Budget aggregate remains deferred.
 
-`packages/domain` exposes a frozen `CategoryBudget` with three readonly fields,
-all explicitly supplied through its options constructor:
+`packages/domain` exposes a frozen `CategoryBudget` with readonly fields,
+explicitly supplied through its options constructor:
 
 - `categoryId`: an opaque nonblank string, preserved exactly without trimming.
 - `amount`: an existing immutable Money instance, retained unchanged with its
   explicit currency and safe integer minor units. No decimal scale is assumed.
 - `role`: exactly `"spending"` or `"income"`, supplied independently of Category
   name and Money sign, without defaults or inference.
+- `spendingCharacter`: required for spending targets, exactly `"essential"` or
+  `"discretionary"`. Essential marks spending explicitly considered necessary in
+  this planning context; discretionary marks spending considered optional.
+  The same Category may have different characters in different plans.
+
+Constructor options are a discriminated union: spending requires a character,
+while income must omit it. Income values have no spending-character property.
+Missing/unsupported spending characters and any character field on income
+(including explicit `undefined`) fail at runtime. Character is never inferred
+from Category name, Merchant, descriptions, amount, or historical behavior.
+Changing it requires constructing a new immutable CategoryBudget. Irregular and
+work/admin treatment remain deferred; these two literals are not a complete future
+budget-character taxonomy.
 
 The amount must be nonnegative for either role. Zero explicitly means no planned
 spending or income for that Category and role, and differs from an absent target.
@@ -1535,8 +1549,10 @@ from Category identity and Merchant identity/type. Dining may receive discretion
 treatment; Medical may be essential or irregular depending on household intent.
 Changing treatment need not change Category identity or Transaction assignment.
 Merchant evidence may later inform a suggestion but must not decide treatment.
-Concrete budget-character representation is deferred; no BudgetCharacter model
-or intrinsic Category/Merchant property is introduced.
+CategoryBudget represents explicit essential/discretionary planning character
+for spending targets only; income targets have no such classification. Broader
+budget-character representation, including irregular and work/admin treatment,
+remains deferred. No intrinsic Category/Merchant property is introduced.
 
 ### Variance, edits, and rollover
 
@@ -1590,7 +1606,7 @@ Budgets require no account registration, backend, or cross-household sharing.
 
 ### Not handled yet
 
-- Budget/BudgetLine or BudgetCharacter models, concrete APIs, or schemas beyond
+- Budget/BudgetLine models, broader budget-character representation, or schemas beyond
   the BudgetPeriod and CategoryBudget values defined above.
 - Reporting/variance algorithms, categorization rules, transaction matching,
   refund/reimbursement netting, or historical reporting snapshots.
@@ -1609,5 +1625,6 @@ Budgets require no account registration, backend, or cross-household sharing.
   greater than period spending, without changing posting dates or treating them as income?
 - What historical plan/version tracking or explicit snapshots, if any, will be
   needed after deliberate edits and financial classification corrections?
-- When budget character is needed, what representation will preserve its independent
-  household meaning without making it intrinsic to Category or Merchant?
+- How should later irregular and work/admin treatment preserve independent planning
+  meaning alongside essential/discretionary character without becoming intrinsic
+  to Category or Merchant?
