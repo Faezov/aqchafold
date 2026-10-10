@@ -14,6 +14,11 @@ export {
   type IncomeClassification,
 } from "./transaction-income-classification";
 export {
+  TransactionSpendingClassification,
+  type TransactionSpendingClassificationOptions,
+  type SpendingClassification,
+} from "./transaction-spending-classification";
+export {
   Account,
   type AccountOptions,
   type AccountType,

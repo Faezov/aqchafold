@@ -6,3 +6,7 @@ export {
   calculateMonthlyIncome,
   type MonthlyIncomeTotal,
 } from "./monthly-income";
+export {
+  calculateMonthlySpending,
+  type MonthlySpendingTotal,
+} from "./monthly-spending";

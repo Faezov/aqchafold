@@ -1,8 +1,8 @@
 # Ledgerase Domain Model
 
 This document currently defines Money, Transaction, TransactionIncomeClassification,
-Account, Merchant, Category, Household, Member, Import, Receipt, ReceiptItem,
-BudgetPeriod, CategoryBudget, and Budget.
+TransactionSpendingClassification, Account, Merchant, Category, Household, Member,
+Import, Receipt, ReceiptItem, BudgetPeriod, CategoryBudget, and Budget.
 
 ## Money
 
@@ -229,6 +229,45 @@ a decision. CategoryBudget.role remains planning-only. Changing a decision requi
 a new value and never mutates the Transaction or constructor input. Decision
 provenance, persistence, review UI, suggestions, and broader economic classification
 remain deferred; this value does not identify or match transfers/refunds.
+
+## TransactionSpendingClassification
+
+TransactionSpendingClassification is an immutable, frozen local decision about one
+canonical Transaction's participation in economic spending actuals. Its constructor
+requires:
+
+- `transactionId`: a nonblank opaque Transaction reference, preserved exactly
+  without trimming or normalization.
+- `classification`: exactly `"spending"` or `"not-spending"`, supplied explicitly.
+
+Both fields are readonly and supplied through the options constructor.
+
+For v0.1 these supplied decisions are authoritative spending classification evidence.
+`"spending"` establishes participation in spending actuals, not necessarily a purchase.
+`"not-spending"` excludes activity from spending only and does not establish income,
+transfer, refund, reimbursement, or any other economic kind. No classification record
+means unresolved spending treatment; there is no `"unresolved"` value or default.
+Malformed or missing fields fail explicitly.
+
+Sign, amount, Category, Merchant, raw description, CategoryBudget, and history never
+create or infer a decision. Category targets remain planning-only. Changing a decision
+requires a new value and leaves the Transaction and constructor input unchanged.
+Decision provenance, persistence, review UI, suggestions, and automatic matching remain
+deferred.
+
+### Independent income and spending evidence
+
+Income and spending classifications remain separate values. A Transaction explicitly
+classified as both `"income"` and `"spending"` has contradictory economic evidence.
+Any operation accepting both classification sets must reject that contradiction.
+Compatible combinations include income + not-spending, not-income + spending,
+not-income + not-spending, one decision present with the other absent, and neither
+decision present. Exclusion from one calculation never implies inclusion in the other.
+
+The individual income and spending calculators consume only their respective
+classification sets. They do not require, infer, or validate evidence they were not
+given. No cross-classification validator or universal economic-kind enum is introduced
+here; a later combined operation must enforce the invariant when it accepts both sets.
 
 ## Account
 
@@ -1487,8 +1526,8 @@ Inputs remain unchanged; the returned array, records, and Money are frozen.
 Sign describes Account balance direction only. This calculation does not infer
 spending, income, transfers, refunds, or reimbursements from signs, Categories,
 Merchants, or descriptions. Transfer and refund movements contribute raw
-debit/credit activity here; their economic exclusion, offsetting, matching, and
-netting remain separate deferred concerns.
+debit/credit activity here; their economic treatment belongs to separate explicitly
+classified calculations. Automatic matching remains deferred.
 
 ## Monthly income
 
@@ -1529,6 +1568,54 @@ amounts never round. Zero-only activity creates no otherwise empty group. A grou
 with nonzero classified activity that cancels exactly to zero is retained with
 canonical Money zero. Neither input array nor any supplied value is mutated;
 returned Money values retain their existing immutability.
+
+## Monthly spending
+
+`packages/budgeting` exposes the pure
+`calculateMonthlySpending(transactions: readonly Transaction[], classifications: readonly TransactionSpendingClassification[])`
+function. It returns a readonly, frozen array of frozen `MonthlySpendingTotal` records
+containing `month`, optional `categoryId`, `currency`, and `total: Money`.
+
+Only Transactions explicitly classified `"spending"` contribute, with contribution
+`-transaction.amount.amountMinor`. A classified negative Account movement increases
+spending by its magnitude; a classified positive movement reduces spending. This is
+**net classified spending activity**, not sign-based classification or gross debits.
+Positive movements offset spending only after an explicit spending decision, allowing
+established refunds, reversals, or reimbursements without automatically detecting or
+matching them. Negative totals are valid when offsets exceed purchases in a group;
+never clamp them to zero. Detailed matching and historical attribution remain deferred.
+
+Transactions classified `"not-spending"` or having no decision are excluded. Unresolved
+economic treatment remains visible through raw monthly category debit/credit totals.
+Confirmed transfers must be excluded through spending decisions; neither sign nor
+Category, Merchant, description, or planning target establishes a transfer or spending.
+
+Groups use Gregorian `YYYY-MM` derived only from `postingDate` in years `0001–9999`,
+the exact Transaction Category reference or its absence, and the exact Money currency.
+Explicitly classified uncategorized spending remains visible with `categoryId` omitted,
+without a fake Category identity or inferred assignment. Different months, Categories,
+uncategorized activity, and currencies remain separate. CategoryBudget presence or role
+does not affect eligibility; neither planning targets nor BudgetPeriod are inputs.
+`transactionDate`, timestamps, timezone, locale, and current date have no effect.
+Currencies never combine; there is no FX or decimal-scale assumption.
+
+All supplied Transaction IDs and spending-classification transactionIds must be unique;
+every decision must reference a supplied Transaction by exact opaque ID. Duplicate,
+conflicting, and dangling references fail before accumulation, including decisions for
+zero or excluded activity. Transactions without decisions remain valid.
+
+Each signed accumulation checks both safe-integer bounds before adding and throws
+`RangeError` for an unsafe intermediate sum in input order, even if later activity could
+cancel it. Money amounts never round. Zero-only classified activity creates no otherwise
+empty group; nonzero activity cancelling exactly to zero retains its group with
+canonical Money zero. Inputs remain unchanged; the returned array, records, and Money
+are frozen.
+
+Results use ordinary JavaScript string ordering: month ascending, categorized results
+first by categoryId ascending, uncategorized results last within each month, and currency
+ascending within each Category/uncategorized group. The calculator accepts only spending
+decisions and cannot validate cross-set income/spending consistency; operations receiving
+both classification sources must reject explicit income + spending contradictions.
 
 ## Budget
 
@@ -1626,9 +1713,11 @@ negative does not inherently mean spending, nor positive income. Unresolved
 economic meaning remains visible for review rather than being guessed from sign.
 The raw monthly category debit/credit totals above do not establish that economic
 meaning and must not be presented as classified spending/income actuals. Monthly
-income now uses explicit TransactionIncomeClassification decisions as described
-above; this does not make planning roles an actual-income classifier or establish
-spending classification.
+income uses explicit TransactionIncomeClassification decisions, and monthly spending
+uses explicit TransactionSpendingClassification decisions, as described above.
+Planning roles do not classify actual activity. An operation consuming both sources
+must reject explicit income + spending evidence for the same Transaction; individual
+calculators cannot validate the other set when it is not supplied.
 
 For eligible activity, distinguish Category actuals with an explicit target,
 Category actuals without a target, and uncategorized actuals with no established
@@ -1658,7 +1747,9 @@ may economically offset spending when its meaning is established by evidence or
 an explicit decision, and remains distinct from ordinary income. Neither requires
 automatic matching to an original purchase here. Posting-date period membership
 still applies; do not move a later refund into an earlier period merely to align
-it with a purchase. Detailed matching and netting/reporting policies are deferred.
+it with a purchase. Monthly spending nets explicitly classified spending movements
+using the sign inversion defined above, allowing negative totals without clamping.
+Detailed matching, historical attribution, and reporting policies remain deferred.
 
 ### Independence from budget character and Merchant
 
@@ -1725,7 +1816,7 @@ Budgets require no account registration, backend, or cross-household sharing.
 - Budget/BudgetLine models, broader budget-character representation, or schemas beyond
   the BudgetPeriod and CategoryBudget values defined above.
 - Reporting/variance algorithms, categorization rules, transaction matching,
-  refund/reimbursement netting, or historical reporting snapshots.
+  detailed refund/reimbursement attribution, or historical reporting snapshots.
 - Rollover, envelopes, carry-forward, recurring templates, or per-Member budgets.
 - Forecasting, actual-to-date views, projections, or recurring-bill prediction.
 - Savings goals, emergency funds, debt payoff, sinking funds, net-worth or investment targets.
