@@ -1,7 +1,7 @@
 # Ledgerase Domain Model
 
 This document currently defines Money, Transaction, Account, Merchant, Category,
-Household, Member, Import, Receipt, ReceiptItem, and Budget.
+Household, Member, Import, Receipt, ReceiptItem, BudgetPeriod, and Budget.
 
 ## Money
 
@@ -1352,6 +1352,29 @@ and deferred split boundaries. Item provenance shares the Receipt's privacy rule
   are needed, without changing current Money semantics?
 - How will item corrections and removal from the interpreted result preserve history?
 
+## BudgetPeriod
+
+BudgetPeriod is an immutable date range describing when a budget applies, separate
+from its identity, Household, currency, Category targets, or allocated amounts.
+
+`packages/domain` exposes a frozen `BudgetPeriod` value with readonly `startDate`
+and `endDate`, both explicitly supplied through its options constructor. Each is a
+real Gregorian `YYYY-MM-DD` date in years `0001–9999`, using the same validation as
+Transaction dates. There are no defaults, trimming, timestamps, time-of-day values,
+or timezone conversions. Invalid dates and reversed ranges fail explicitly.
+
+Both boundaries are inclusive, and `startDate <= endDate`; a one-day period is
+valid. `contains(date)` validates the supplied canonical date and returns whether
+`startDate <= date <= endDate`. Budget membership uses `contains(transaction.postingDate)`
+without substituting the optional transaction date, Receipt date, or Import timing.
+Invalid membership dates fail explicitly rather than appearing outside the period.
+
+Periods may span arbitrary date ranges, including month/year boundaries, and may
+be historical or future. Monthly alignment is optional; periods may overlap.
+Construction and membership do not consult the current date or a timezone.
+Changing a range requires a new value and leaves the original unchanged. Recurring
+schedules, allocations, spending calculations, rollover, and persistence are deferred.
+
 ## Budget
 
 Budget is Ledgerase's household financial plan for a defined calendar period.
@@ -1539,7 +1562,8 @@ Budgets require no account registration, backend, or cross-household sharing.
 
 ### Not handled yet
 
-- BudgetLine, BudgetPeriod, or BudgetCharacter models, concrete APIs, or schemas.
+- Budget/BudgetLine or BudgetCharacter models, concrete APIs, or schemas beyond
+  the BudgetPeriod value defined above.
 - Reporting/variance algorithms, categorization rules, transaction matching,
   refund/reimbursement netting, or historical reporting snapshots.
 - Rollover, envelopes, carry-forward, recurring templates, or per-Member budgets.

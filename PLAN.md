@@ -175,7 +175,7 @@ Target:
 
 ## 7. Basic budgeting
 
-- [ ] Define budget period
+- [X] Define budget period
 - [ ] Define category budget
 - [ ] Separate essential spending
 - [ ] Separate discretionary spending
