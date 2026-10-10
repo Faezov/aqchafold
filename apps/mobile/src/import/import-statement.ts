@@ -1,5 +1,7 @@
 import {
   type AccountRepository,
+  type CategoryRepository,
+  type CategoryRuleRepository,
   DuplicateImportError,
   type ImportRepository,
 } from "@aqchafold/database";
@@ -12,6 +14,7 @@ import {
   fingerprintDocumentInput,
   type ReconciliationStatus,
 } from "@aqchafold/importers-core";
+import { applyCategoryRules } from "@aqchafold/merchants";
 import type { SelectedDocument } from "../platform/pick-statement-document";
 
 export type ImportStatementOptions = {
@@ -20,6 +23,8 @@ export type ImportStatementOptions = {
   confirmedCurrency: string;
   currencyDecimalPlaces: 2;
   accountRepository: Pick<AccountRepository, "getById">;
+  categoryRepository: Pick<CategoryRepository, "getById">;
+  categoryRuleRepository: Pick<CategoryRuleRepository, "get">;
   importRepository: Pick<ImportRepository, "create" | "complete" | "fail">;
   readDocumentBytes: (uri: string) => Promise<Uint8Array>;
   createImportId: () => string;
@@ -50,6 +55,8 @@ export async function importStatement({
   confirmedCurrency,
   currencyDecimalPlaces,
   accountRepository,
+  categoryRepository,
+  categoryRuleRepository,
   importRepository,
   readDocumentBytes,
   createImportId,
@@ -82,12 +89,18 @@ export async function importStatement({
     if (!account || account.primaryCurrency !== confirmedCurrency)
       return { status: "failed" };
     const importId = createImportId();
-    const transactions = convertCommBankBrowserSummaryToTransactions(parsed, {
-      accountId: account.id,
-      currency: account.primaryCurrency,
-      currencyDecimalPlaces,
-      createTransactionId: (row) =>
-        `${importId}:transaction:${row.position.page ?? 0}:${row.position.row}`,
+    const transactions = applyCategoryRules({
+      transactions: convertCommBankBrowserSummaryToTransactions(parsed, {
+        accountId: account.id,
+        currency: account.primaryCurrency,
+        currencyDecimalPlaces,
+        createTransactionId: (row) =>
+          `${importId}:transaction:${row.position.page ?? 0}:${row.position.row}`,
+      }),
+      householdId: account.householdId,
+      findRule: (householdId, normalizedDescription) =>
+        categoryRuleRepository.get(householdId, normalizedDescription),
+      findCategoryById: (id) => categoryRepository.getById(id),
     });
     if (signal?.aborted) return { status: "failed" };
     const attempt = new Import({

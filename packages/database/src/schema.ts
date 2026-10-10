@@ -118,6 +118,22 @@ export const categories = sqliteTable(
   ],
 );
 
+export const categoryRules = sqliteTable(
+  "category_rules",
+  {
+    householdId: text("household_id")
+      .notNull()
+      .references(() => households.id),
+    normalizedDescription: text("normalized_description").notNull(),
+    categoryId: text("category_id")
+      .notNull()
+      .references(() => categories.id),
+  },
+  (table) => [
+    primaryKey({ columns: [table.householdId, table.normalizedDescription] }),
+  ],
+);
+
 export const imports = sqliteTable(
   "imports",
   {

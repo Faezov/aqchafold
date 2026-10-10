@@ -1,6 +1,8 @@
 import {
   AccountRepository,
+  assignCategoryAndRemember,
   CategoryRepository,
+  CategoryRuleRepository,
   createLocalAccount,
   HouseholdRepository,
   ImportRepository,
@@ -9,6 +11,7 @@ import {
   migrateLedgeraseDatabase,
   openLedgeraseDatabase,
   TransactionRepository,
+  type RememberedTransactionCategoryAssignment,
 } from "@aqchafold/database";
 import { randomUUID } from "expo-crypto";
 import { useEffect, useReducer, useRef, useState } from "react";
@@ -31,6 +34,10 @@ type AppState =
       database: ReturnType<typeof openLedgeraseDatabase>;
       accountRepository: AccountRepository;
       categoryRepository: CategoryRepository;
+      categoryRuleRepository: CategoryRuleRepository;
+      assignCategoryAndRemember: (
+        input: RememberedTransactionCategoryAssignment,
+      ) => void;
       householdRepository: HouseholdRepository;
       importRepository: ImportRepository;
       transactionRepository: TransactionRepository;
@@ -110,6 +117,8 @@ export default function App() {
         confirmedCurrency: account.primaryCurrency,
         currencyDecimalPlaces: 2,
         accountRepository: state.accountRepository,
+        categoryRepository: state.categoryRepository,
+        categoryRuleRepository: state.categoryRuleRepository,
         importRepository: state.importRepository,
         readDocumentBytes,
         createImportId: randomUUID,
@@ -159,6 +168,7 @@ export default function App() {
           if (active) {
             const accountRepository = new AccountRepository(database);
             const categoryRepository = new CategoryRepository(database);
+            const categoryRuleRepository = new CategoryRuleRepository(database);
             const householdRepository = new HouseholdRepository(database);
             const importRepository = new ImportRepository(database);
             const transactionRepository = new TransactionRepository(database);
@@ -171,6 +181,9 @@ export default function App() {
               database,
               accountRepository,
               categoryRepository,
+              categoryRuleRepository,
+              assignCategoryAndRemember: (input) =>
+                assignCategoryAndRemember(database, input),
               householdRepository,
               importRepository,
               transactionRepository,
@@ -251,6 +264,7 @@ export default function App() {
         <MerchantReviewScreen
           accountRepository={state.accountRepository}
           categoryRepository={state.categoryRepository}
+          assignCategoryAndRemember={state.assignCategoryAndRemember}
           transactionRepository={state.transactionRepository}
           merchantRepository={state.merchantRepository}
           merchantRuleRepository={state.merchantRuleRepository}

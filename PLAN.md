@@ -163,7 +163,7 @@ raw description
 - [X] Create merchant review screen
 - [X] Allow user to confirm a suggestion
 - [X] Allow user to change a category
-- [ ] Remember correction permanently
+- [X] Remember correction permanently
 
 Milestone:
 Unknown spending decreases as Ledgerase learns the household's merchants.

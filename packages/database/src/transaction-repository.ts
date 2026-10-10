@@ -17,7 +17,10 @@ class CategoryAssignmentError extends Error {}
 /** Canonical posted movements with validated references and explicit category assignment. */
 export class TransactionRepository {
   constructor(
-    private readonly database: ReturnType<typeof openLedgeraseDatabase>,
+    private readonly database: Pick<
+      ReturnType<typeof openLedgeraseDatabase>,
+      "select" | "insert" | "update" | "transaction"
+    >,
   ) {}
 
   create(transaction: Transaction): void {

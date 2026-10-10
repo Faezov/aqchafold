@@ -3,6 +3,7 @@ import type {
   CategoryRepository,
   MerchantRepository,
   MerchantRuleRepository,
+  RememberedTransactionCategoryAssignment,
   TransactionRepository,
 } from "@aqchafold/database";
 import type { Category } from "@aqchafold/domain";
@@ -26,6 +27,9 @@ import {
 type MerchantReviewScreenProps = {
   accountRepository: AccountRepository;
   categoryRepository: CategoryRepository;
+  assignCategoryAndRemember: (
+    input: RememberedTransactionCategoryAssignment,
+  ) => void;
   transactionRepository: TransactionRepository;
   merchantRepository: MerchantRepository;
   merchantRuleRepository: MerchantRuleRepository;
@@ -35,6 +39,7 @@ type MerchantReviewScreenProps = {
 export default function MerchantReviewScreen({
   accountRepository,
   categoryRepository,
+  assignCategoryAndRemember,
   transactionRepository,
   merchantRepository,
   merchantRuleRepository,
@@ -49,6 +54,7 @@ export default function MerchantReviewScreen({
         {
           accountRepository,
           categoryRepository,
+          assignCategoryAndRemember,
           transactionRepository,
           merchantRepository,
           merchantRuleRepository,
@@ -58,6 +64,7 @@ export default function MerchantReviewScreen({
     [
       accountRepository,
       categoryRepository,
+      assignCategoryAndRemember,
       transactionRepository,
       merchantRepository,
       merchantRuleRepository,
@@ -140,11 +147,12 @@ export default function MerchantReviewScreen({
                   group={group}
                   categories={state.activeCategories}
                   submitting={state.submitting}
-                  onApply={(categoryId) =>
+                  onApply={(categoryId, rememberForFuture) =>
                     controller.applyCategory({
                       householdId: section.householdId,
                       group,
                       categoryId,
+                      rememberForFuture,
                     })
                   }
                 />
@@ -190,17 +198,20 @@ function CategoryAssignment({
   group: CategorizedMerchantReviewGroup;
   categories: readonly Category[];
   submitting: boolean;
-  onApply: (categoryId: string) => void;
+  onApply: (categoryId: string, rememberForFuture: boolean) => void;
 }) {
   const [selection, setSelection] = useState<{
     group: CategorizedMerchantReviewGroup;
-    categoryId: string;
+    categoryId?: string;
+    rememberForFuture: boolean;
   }>();
   // Reloaded groups invalidate a selection, including after either action fails.
   const selected =
     selection?.group === group
       ? categories.find((category) => category.id === selection.categoryId)
       : undefined;
+  const rememberForFuture =
+    selection?.group === group && selection.rememberForFuture;
   return (
     <View style={styles.categoryControls}>
       <Text style={styles.text}>
@@ -218,7 +229,13 @@ function CategoryAssignment({
               disabled: submitting,
             }}
             disabled={submitting}
-            onPress={() => setSelection({ group, categoryId: category.id })}
+            onPress={() =>
+              setSelection({
+                group,
+                categoryId: category.id,
+                rememberForFuture,
+              })
+            }
             style={[
               styles.confirm,
               selected === category && styles.selectedCategory,
@@ -229,12 +246,36 @@ function CategoryAssignment({
         ))}
       </View>
       <Pressable
+        accessibilityRole="checkbox"
+        accessibilityState={{
+          checked: rememberForFuture,
+          disabled: submitting || categories.length === 0,
+        }}
+        disabled={submitting || categories.length === 0}
+        onPress={() =>
+          setSelection({
+            group,
+            categoryId: selected?.id,
+            rememberForFuture: !rememberForFuture,
+          })
+        }
+        style={[
+          styles.confirm,
+          rememberForFuture && styles.selectedCategory,
+          (submitting || categories.length === 0) && styles.disabled,
+        ]}
+      >
+        <Text style={styles.text}>
+          Remember for future transactions with this description
+        </Text>
+      </Pressable>
+      <Pressable
         accessibilityRole="button"
         accessibilityLabel="Apply category to this review group"
         accessibilityState={{ disabled: submitting || selected === undefined }}
         disabled={submitting || selected === undefined}
         onPress={() => {
-          if (selected) onApply(selected.id);
+          if (selected) onApply(selected.id, rememberForFuture);
         }}
         style={[
           styles.confirm,

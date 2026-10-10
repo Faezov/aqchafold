@@ -1,4 +1,8 @@
-import type { MerchantRule } from "@aqchafold/database";
+import type {
+  CategoryRule,
+  MerchantRule,
+  RememberedTransactionCategoryAssignment,
+} from "@aqchafold/database";
 import {
   Account,
   Category,
@@ -82,6 +86,7 @@ function setup(
     }),
   ];
   const rules: MerchantRule[] = [];
+  const categoryRules: CategoryRule[] = [];
   const create = vi.fn((rule: MerchantRule) => {
     rules.push({ ...rule });
   });
@@ -106,6 +111,29 @@ function setup(
       }
     },
   );
+  const assignCategoryAndRemember = vi.fn(
+    (input: RememberedTransactionCategoryAssignment) => {
+      if (
+        categoryRules.some(
+          (rule) =>
+            rule.householdId === input.householdId &&
+            rule.normalizedDescription === input.normalizedDescription,
+        )
+      ) {
+        throw new Error("SECRET duplicate category rule");
+      }
+      assignCategory({
+        householdId: input.householdId,
+        transactionIds: input.transactionIds,
+        categoryId: input.categoryId,
+      });
+      categoryRules.push({
+        householdId: input.householdId,
+        normalizedDescription: input.normalizedDescription,
+        categoryId: input.categoryId,
+      });
+    },
+  );
   const getById = vi.fn((id: string) =>
     id === merchant.id ? merchant : undefined,
   );
@@ -115,6 +143,7 @@ function setup(
     {
       accountRepository: { list: () => [account] },
       categoryRepository: { list: () => categories, getById: getCategoryById },
+      assignCategoryAndRemember,
       transactionRepository: { list, assignCategory },
       merchantRepository: { getById },
       merchantRuleRepository: {
@@ -160,6 +189,8 @@ function setup(
     categories,
     getCategoryById,
     assignCategory,
+    assignCategoryAndRemember,
+    categoryRules,
     create,
     list,
     getById,
@@ -381,40 +412,63 @@ describe("Merchant review category assignment controller", () => {
     expect(fixture.create).not.toHaveBeenCalled();
   });
 
-  it("assigns by canonical ID to exact current group IDs and derives the reloaded state", () => {
-    const fixture = setup();
-    const before = fixture.transactions.map((transaction) => ({
-      ...transaction,
-    }));
-    fixture.controller.load();
-    const action = fixture.categoryAction();
-    fixture.controller.applyCategory(action);
-    expect(fixture.getCategoryById).toHaveBeenCalledExactlyOnceWith(
-      "category-a",
-    );
-    expect(fixture.assignCategory).toHaveBeenCalledExactlyOnceWith({
-      householdId: "household",
-      transactionIds: action.group.transactionIds,
-      categoryId: "category-a",
-    });
-    expect(fixture.categoryAction().group.categoryState).toEqual({
-      kind: "categorized",
-      category: fixture.categories[0],
-    });
-    expect(fixture.categoryAction().group).not.toBe(action.group);
-    expect(
-      fixture.transactions.map((transaction) => ({ ...transaction })),
-    ).toEqual(
-      before.map((transaction) =>
-        transaction.id === "pending"
-          ? { ...transaction, categoryId: "category-a" }
-          : transaction,
-      ),
-    );
-    expect(fixture.list).toHaveBeenCalledTimes(2);
-    expect(fixture.rules).toEqual([]);
-    expect(fixture.create).not.toHaveBeenCalled();
-  });
+  it.each([undefined, false, true])(
+    "assigns the current group with explicit remember opt-in=%s",
+    (rememberForFuture) => {
+      const fixture = setup();
+      const before = fixture.transactions.map((transaction) => ({
+        ...transaction,
+      }));
+      fixture.controller.load();
+      const action = { ...fixture.categoryAction(), rememberForFuture };
+      fixture.controller.applyCategory(action);
+      expect(fixture.getCategoryById).toHaveBeenCalledExactlyOnceWith(
+        "category-a",
+      );
+      expect(fixture.assignCategory).toHaveBeenCalledExactlyOnceWith({
+        householdId: "household",
+        transactionIds: action.group.transactionIds,
+        categoryId: "category-a",
+      });
+      if (rememberForFuture === true) {
+        expect(
+          fixture.assignCategoryAndRemember,
+        ).toHaveBeenCalledExactlyOnceWith({
+          householdId: "household",
+          transactionIds: action.group.transactionIds,
+          categoryId: "category-a",
+          normalizedDescription: "Synthetic Shop",
+        });
+        expect(fixture.categoryRules).toEqual([
+          {
+            householdId: "household",
+            normalizedDescription: "Synthetic Shop",
+            categoryId: "category-a",
+          },
+        ]);
+      } else {
+        expect(fixture.assignCategoryAndRemember).not.toHaveBeenCalled();
+        expect(fixture.categoryRules).toEqual([]);
+      }
+      expect(fixture.categoryAction().group.categoryState).toEqual({
+        kind: "categorized",
+        category: fixture.categories[0],
+      });
+      expect(fixture.categoryAction().group).not.toBe(action.group);
+      expect(
+        fixture.transactions.map((transaction) => ({ ...transaction })),
+      ).toEqual(
+        before.map((transaction) =>
+          transaction.id === "pending"
+            ? { ...transaction, categoryId: "category-a" }
+            : transaction,
+        ),
+      );
+      expect(fixture.list).toHaveBeenCalledTimes(2);
+      expect(fixture.rules).toEqual([]);
+      expect(fixture.create).not.toHaveBeenCalled();
+    },
+  );
 
   it("changes an existing Category without teaching future matching Transactions", () => {
     const fixture = setup();
@@ -438,22 +492,39 @@ describe("Merchant review category assignment controller", () => {
       kind: "mixed",
     });
     expect(fixture.rules).toEqual([]);
+    expect(fixture.categoryRules).toEqual([]);
+    expect(fixture.assignCategoryAndRemember).not.toHaveBeenCalled();
     expect(fixture.create).not.toHaveBeenCalled();
   });
 
-  it("allows unknown groups to be categorized without confirming a Merchant", () => {
-    const fixture = setup();
-    fixture.controller.load();
-    fixture.controller.applyCategory(
-      fixture.categoryAction("category-a", "unknown"),
-    );
-    expect(fixture.transactions[2].categoryId).toBe("category-a");
-    expect(fixture.transactions[2].merchantId).toBeUndefined();
-    expect(fixture.categoryAction("category-a", "unknown").group.status).toBe(
-      "unknown",
-    );
-    expect(fixture.create).not.toHaveBeenCalled();
-  });
+  it.each([false, true])(
+    "allows unknown groups to be categorized without confirming a Merchant with remember=%s",
+    (rememberForFuture) => {
+      const fixture = setup();
+      fixture.controller.load();
+      fixture.controller.applyCategory({
+        ...fixture.categoryAction("category-a", "unknown"),
+        rememberForFuture,
+      });
+      expect(fixture.transactions[2].categoryId).toBe("category-a");
+      expect(fixture.transactions[2].merchantId).toBeUndefined();
+      expect(fixture.categoryAction("category-a", "unknown").group.status).toBe(
+        "unknown",
+      );
+      expect(fixture.create).not.toHaveBeenCalled();
+      expect(fixture.categoryRules).toEqual(
+        rememberForFuture
+          ? [
+              {
+                householdId: "household",
+                normalizedDescription: "Other Shop",
+                categoryId: "category-a",
+              },
+            ]
+          : [],
+      );
+    },
+  );
 
   it("prevents reentrant, repeated and competing confirmation writes while retaining source state until persistence", () => {
     const fixture = setup();
@@ -542,6 +613,26 @@ describe("Merchant review category assignment controller", () => {
     );
   });
 
+  it("rejects a Category archived after selection before a remembered assignment", () => {
+    const fixture = setup();
+    fixture.controller.load();
+    const action = { ...fixture.categoryAction(), rememberForFuture: true };
+    fixture.getCategoryById.mockReturnValueOnce(
+      new Category({
+        id: action.categoryId,
+        name: "Past purpose",
+        status: "archived",
+      }),
+    );
+    fixture.controller.applyCategory(action);
+    expect(fixture.assignCategoryAndRemember).not.toHaveBeenCalled();
+    expect(fixture.assignCategory).not.toHaveBeenCalled();
+    expect(fixture.categoryRules).toEqual([]);
+    expect(fixture.ready().categoryError).toBe(
+      CATEGORY_ASSIGNMENT_FAILURE_MESSAGE,
+    );
+  });
+
   it.each(["householdId", "categoryId", "normalizedDescription"] as const)(
     "rejects invalid %s",
     (field) => {
@@ -583,44 +674,114 @@ describe("Merchant review category assignment controller", () => {
     );
   });
 
-  it("sanitizes persistence failure, reloads unchanged source truth and allows a fresh retry", () => {
-    const fixture = setup();
-    fixture.controller.load();
-    const action = fixture.categoryAction();
-    const before = fixture.transactions.map((transaction) => ({
-      ...transaction,
-    }));
-    fixture.assignCategory.mockImplementationOnce(() => {
-      throw new Error("SECRET SQL parameters");
-    });
-    fixture.controller.applyCategory(action);
-    expect(fixture.ready().categoryError).toBe(
-      CATEGORY_ASSIGNMENT_FAILURE_MESSAGE,
-    );
-    expect(fixture.categoryAction().group.categoryState).toEqual({
-      kind: "uncategorized",
-    });
-    expect(fixture.transactions).toEqual(before);
-    expect(fixture.list).toHaveBeenCalledTimes(2);
-    expect(JSON.stringify(fixture.changes)).not.toContain("SECRET");
-    fixture.controller.applyCategory(action);
-    expect(fixture.assignCategory).toHaveBeenCalledTimes(1);
-    fixture.controller.applyCategory(fixture.categoryAction());
-    expect(fixture.assignCategory).toHaveBeenCalledTimes(2);
-    expect(fixture.ready().categoryError).toBeUndefined();
-  });
-
-  it.each([true, false])(
-    "shows fixed source-read failure after assignment success=%s",
-    (succeeds) => {
+  it.each([null, "true", 0, 1, {}])(
+    "rejects malformed remember opt-in %j without either persistence path",
+    (rememberForFuture) => {
       const fixture = setup();
       fixture.controller.load();
-      const action = fixture.categoryAction();
+      fixture.controller.applyCategory({
+        ...fixture.categoryAction(),
+        rememberForFuture,
+      } as MerchantReviewCategoryAction);
+      expect(fixture.assignCategory).not.toHaveBeenCalled();
+      expect(fixture.assignCategoryAndRemember).not.toHaveBeenCalled();
+      expect(fixture.categoryRules).toEqual([]);
+      expect(fixture.ready().categoryError).toBe(
+        CATEGORY_ASSIGNMENT_FAILURE_MESSAGE,
+      );
+    },
+  );
+
+  it.each(["category-a", "category-b"])(
+    "shows a failed remembered assignment without replacing the existing rule for %s",
+    (categoryId) => {
+      const fixture = setup();
+      const existingRule = {
+        householdId: "household",
+        normalizedDescription: "Synthetic Shop",
+        categoryId,
+      };
+      fixture.categoryRules.push(existingRule);
+      fixture.controller.load();
+      const before = [...fixture.transactions];
+      fixture.controller.applyCategory({
+        ...fixture.categoryAction(),
+        rememberForFuture: true,
+      });
+      expect(fixture.assignCategoryAndRemember).toHaveBeenCalledTimes(1);
+      expect(fixture.assignCategory).not.toHaveBeenCalled();
+      expect(fixture.transactions).toEqual(before);
+      expect(fixture.categoryRules).toEqual([existingRule]);
+      expect(fixture.ready().categoryError).toBe(
+        CATEGORY_ASSIGNMENT_FAILURE_MESSAGE,
+      );
+      expect(JSON.stringify(fixture.changes)).not.toContain("SECRET");
+      // A new action can still make a current-only correction without touching the rule.
+      fixture.controller.applyCategory(fixture.categoryAction());
+      expect(fixture.transactions[1].categoryId).toBe("category-a");
+      expect(fixture.assignCategoryAndRemember).toHaveBeenCalledTimes(1);
+      expect(fixture.categoryRules).toEqual([existingRule]);
+      expect(fixture.ready().categoryError).toBeUndefined();
+    },
+  );
+
+  it.each([false, true])(
+    "sanitizes persistence failure and allows a fresh retry with remember=%s",
+    (rememberForFuture) => {
+      const fixture = setup();
+      fixture.controller.load();
+      const action = { ...fixture.categoryAction(), rememberForFuture };
+      const before = fixture.transactions.map((transaction) => ({
+        ...transaction,
+      }));
+      const write = rememberForFuture
+        ? fixture.assignCategoryAndRemember
+        : fixture.assignCategory;
+      write.mockImplementationOnce(() => {
+        throw new Error("SECRET SQL parameters");
+      });
+      fixture.controller.applyCategory(action);
+      expect(fixture.ready().categoryError).toBe(
+        CATEGORY_ASSIGNMENT_FAILURE_MESSAGE,
+      );
+      expect(fixture.categoryAction().group.categoryState).toEqual({
+        kind: "uncategorized",
+      });
+      expect(fixture.transactions).toEqual(before);
+      expect(fixture.categoryRules).toEqual([]);
+      expect(fixture.list).toHaveBeenCalledTimes(2);
+      expect(JSON.stringify(fixture.changes)).not.toContain("SECRET");
+      fixture.controller.applyCategory(action);
+      expect(write).toHaveBeenCalledTimes(1);
+      fixture.controller.applyCategory({
+        ...fixture.categoryAction(),
+        rememberForFuture,
+      });
+      expect(write).toHaveBeenCalledTimes(2);
+      expect(fixture.categoryRules).toHaveLength(rememberForFuture ? 1 : 0);
+      expect(fixture.ready().categoryError).toBeUndefined();
+    },
+  );
+
+  it.each([
+    { succeeds: true, rememberForFuture: false },
+    { succeeds: false, rememberForFuture: false },
+    { succeeds: true, rememberForFuture: true },
+    { succeeds: false, rememberForFuture: true },
+  ])(
+    "shows fixed source-read failure after assignment success=$succeeds and remember=$rememberForFuture",
+    ({ succeeds, rememberForFuture }) => {
+      const fixture = setup();
+      fixture.controller.load();
+      const action = { ...fixture.categoryAction(), rememberForFuture };
+      const write = rememberForFuture
+        ? fixture.assignCategoryAndRemember
+        : fixture.assignCategory;
       fixture.list.mockImplementationOnce(() => {
         throw new Error("SECRET read failure");
       });
       if (!succeeds)
-        fixture.assignCategory.mockImplementationOnce(() => {
+        write.mockImplementationOnce(() => {
           throw new Error("SECRET write failure");
         });
       fixture.controller.applyCategory(action);
@@ -632,7 +793,10 @@ describe("Merchant review category assignment controller", () => {
       });
       expect(JSON.stringify(fixture.changes)).not.toContain("SECRET");
       fixture.controller.applyCategory(action);
-      expect(fixture.assignCategory).toHaveBeenCalledTimes(1);
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(fixture.categoryRules).toHaveLength(
+        succeeds && rememberForFuture ? 1 : 0,
+      );
     },
   );
 });

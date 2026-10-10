@@ -1,5 +1,7 @@
 export { resolveMerchantAlias } from "./aliases";
 export type { MerchantAlias } from "./aliases";
+export { applyCategoryRules } from "./apply-category-rules";
+export type { CategoryRuleApplicationOptions } from "./apply-category-rules";
 export type {
   MerchantDescriptionNormalizer,
   MerchantNormalizationResult,

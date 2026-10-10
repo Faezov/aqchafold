@@ -5,10 +5,15 @@ import { createRequire } from "node:module";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { URL } from "node:url";
 import { Account, Household, Money, Transaction } from "@aqchafold/domain";
-import { commbankBrowserSummaryImporter } from "@aqchafold/importers-commbank";
+import {
+  commbankBrowserSummaryImporter,
+  convertCommBankBrowserSummaryToTransactions,
+} from "@aqchafold/importers-commbank";
 import { fingerprintDocumentInput } from "@aqchafold/importers-core";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AccountRepository } from "../../../../packages/database/src/account-repository";
+import { CategoryRepository } from "../../../../packages/database/src/category-repository";
+import { CategoryRuleRepository } from "../../../../packages/database/src/category-rule-repository";
 import type { openLedgeraseDatabase } from "../../../../packages/database/src/database";
 import { HouseholdRepository } from "../../../../packages/database/src/household-repository";
 import {
@@ -124,6 +129,8 @@ beforeEach(() => {
     confirmedCurrency: "USD",
     currencyDecimalPlaces: 2,
     accountRepository: accounts,
+    categoryRepository: new CategoryRepository(store.database),
+    categoryRuleRepository: new CategoryRuleRepository(store.database),
     importRepository: imports,
     readDocumentBytes: vi.fn(async () => bytes),
     createImportId: () => `attempt-${++attempt}`,
@@ -176,6 +183,7 @@ it("imports exact selected bytes as eleven canonical Transactions and a complete
     expect(transaction.accountId).toBe("account");
     expect(transaction.amount.currency).toBe("USD");
     expect(transaction.origin).toBe("imported");
+    expect(transaction.categoryId).toBeUndefined();
   }
 });
 
@@ -459,4 +467,188 @@ it("returns no database diagnostics or success facts when completion throws", as
   expect(await importStatement(options)).toEqual({ status: "failed" });
   expect(transactions.list()).toEqual([]);
   expect(imports.getById("attempt-1")?.processingStatus).toBe("failed");
+});
+
+function rememberSyntheticCategory(
+  normalizedDescription = "Synthetic Café!",
+  householdId = "household",
+) {
+  store.sqlite
+    .prepare("INSERT INTO categories (id, name, status) VALUES (?, ?, ?)")
+    .run("purpose-id", "Invented purpose", "active");
+  new CategoryRuleRepository(store.database).create({
+    householdId,
+    normalizedDescription,
+    categoryId: "purpose-id",
+  });
+}
+
+async function withSyntheticDescriptions(descriptions: readonly string[]) {
+  const parsed = await commbankBrowserSummaryImporter.parse({ bytes });
+  const synthetic = {
+    ...parsed,
+    rows: parsed.rows.map((row, index) =>
+      index < descriptions.length
+        ? { ...row, rawDescription: descriptions[index] }
+        : row,
+    ),
+  };
+  vi.spyOn(commbankBrowserSummaryImporter, "parse").mockResolvedValue(
+    synthetic,
+  );
+  return convertCommBankBrowserSummaryToTransactions(synthetic, {
+    accountId: "account",
+    currency: "USD",
+    currencyDecimalPlaces: 2,
+    createTransactionId: (row) =>
+      `attempt-1:transaction:${row.position.page ?? 0}:${row.position.row}`,
+  });
+}
+
+it("applies remembered categories before atomic completion using the production normalization composition", async () => {
+  rememberSyntheticCategory();
+  const source = await withSyntheticDescriptions([
+    "  PAYPAL *Synthetic   Café!\nValue Date 01/03/2040",
+    "SQ *Synthetic Café!\r\nValue Date 01/03/2040",
+    "Synthetic Café!\nValue Date 31/02/2040",
+    "Synthetic Café! Value Date 01/03/2040",
+    "Synthetic Café!\nValue date 01/03/2040",
+    "synthetic Café!",
+    "Different synthetic description",
+  ]);
+  const existing = new Transaction({
+    id: "existing-history",
+    accountId: "account",
+    postingDate: "2040-03-02",
+    amount: new Money(-987, "USD"),
+    merchantId: undefined,
+    categoryId: "purpose-id",
+    origin: "manual",
+    rawDescription: "PAYPAL *Synthetic Café!",
+  });
+  transactions.create(existing);
+  expect(await importStatement(options)).toMatchObject({ status: "imported" });
+  for (const [index, transaction] of source.entries()) {
+    expect(
+      new TransactionRepository(store.database).getById(transaction.id),
+    ).toEqual({
+      ...transaction,
+      categoryId: index < 2 ? "purpose-id" : undefined,
+    });
+    expect(transaction.categoryId).toBeUndefined();
+  }
+  expect(transactions.getById(existing.id)).toEqual(existing);
+  expect(imports.getById("attempt-1")?.processingStatus).toBe("completed");
+  expect(store.sqlite.prepare("SELECT * FROM merchant_rules").all()).toEqual(
+    [],
+  );
+  expect(
+    new CategoryRuleRepository(store.database).get(
+      "household",
+      "Synthetic Café!",
+    ),
+  ).toEqual({
+    householdId: "household",
+    normalizedDescription: "Synthetic Café!",
+    categoryId: "purpose-id",
+  });
+});
+
+it("derives remembered-rule Household scope from the confirmed Account", async () => {
+  rememberSyntheticCategory();
+  await withSyntheticDescriptions(["PAYPAL *Synthetic Café!"]);
+  // Adversarial isolation fixture: normal v0.1 setup permits one Household only.
+  store.sqlite
+    .prepare("INSERT INTO households (id, label) VALUES (?, ?)")
+    .run("other-household", "Other synthetic household");
+  new AccountRepository(store.database).create(
+    new Account({
+      id: "other-account",
+      householdId: "other-household",
+      label: "Other USD account",
+      type: "transaction",
+      status: "active",
+      primaryCurrency: "USD",
+      ownership: { kind: "household-level" },
+    }),
+  );
+  expect(await importStatement(options)).toMatchObject({ status: "imported" });
+  expect(
+    await importStatement({ ...options, accountId: "other-account" }),
+  ).toMatchObject({ status: "imported" });
+  expect(transactions.getById("attempt-1:transaction:1:1")?.categoryId).toBe(
+    "purpose-id",
+  );
+  expect(transactions.getById("attempt-2:transaction:1:1")).toMatchObject({
+    accountId: "other-account",
+    categoryId: undefined,
+  });
+});
+
+it("keeps archived remembered references readable and skips them for future import assignment", async () => {
+  rememberSyntheticCategory();
+  await withSyntheticDescriptions(["PAYPAL *Synthetic Café!"]);
+  store.sqlite
+    .prepare("UPDATE categories SET status = ? WHERE id = ?")
+    .run("archived", "purpose-id");
+  expect(await importStatement(options)).toMatchObject({ status: "imported" });
+  expect(
+    transactions.list().every(({ categoryId }) => categoryId === undefined),
+  ).toBe(true);
+  expect(
+    new CategoryRuleRepository(store.database).get(
+      "household",
+      "Synthetic Café!",
+    )?.categoryId,
+  ).toBe("purpose-id");
+});
+
+it("retains atomic rollback when a remembered-category import batch fails after earlier inserts", async () => {
+  rememberSyntheticCategory();
+  await withSyntheticDescriptions(["PAYPAL *Synthetic Café!"]);
+  const existing = new Transaction({
+    id: "attempt-1:transaction:1:11",
+    accountId: "account",
+    postingDate: "2040-03-02",
+    origin: "manual",
+    rawDescription: "Existing synthetic history",
+    amount: new Money(17, "USD"),
+  });
+  transactions.create(existing);
+  expect(await importStatement(options)).toEqual({ status: "failed" });
+  expect(transactions.list()).toEqual([existing]);
+  expect(imports.getById("attempt-1")?.processingStatus).toBe("failed");
+  expect(
+    new CategoryRuleRepository(store.database).get(
+      "household",
+      "Synthetic Café!",
+    )?.categoryId,
+  ).toBe("purpose-id");
+});
+
+it.each(["rule", "category"] as const)(
+  "sanitizes remembered %s lookup failures before any Import or Transaction writes",
+  async (lookup) => {
+    rememberSyntheticCategory();
+    await withSyntheticDescriptions(["PAYPAL *Synthetic Café!"]);
+    const fail = () => {
+      throw new Error(
+        "SQL parameters containing synthetic financial source details",
+      );
+    };
+    if (lookup === "rule")
+      vi.spyOn(options.categoryRuleRepository, "get").mockImplementation(fail);
+    else
+      vi.spyOn(options.categoryRepository, "getById").mockImplementation(fail);
+    expect(await importStatement(options)).toEqual({ status: "failed" });
+    expectNoPersistence();
+  },
+);
+
+it("rejects a missing canonical remembered Category before persistence", async () => {
+  rememberSyntheticCategory();
+  await withSyntheticDescriptions(["PAYPAL *Synthetic Café!"]);
+  vi.spyOn(options.categoryRepository, "getById").mockReturnValue(undefined);
+  expect(await importStatement(options)).toEqual({ status: "failed" });
+  expectNoPersistence();
 });

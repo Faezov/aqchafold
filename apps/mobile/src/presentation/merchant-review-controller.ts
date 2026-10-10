@@ -3,6 +3,7 @@ import type {
   CategoryRepository,
   MerchantRepository,
   MerchantRuleRepository,
+  RememberedTransactionCategoryAssignment,
   TransactionRepository,
 } from "@aqchafold/database";
 import type { Category } from "@aqchafold/domain";
@@ -25,6 +26,7 @@ export type MerchantReviewCategoryAction = {
   readonly householdId: string;
   readonly group: CategorizedMerchantReviewGroup;
   readonly categoryId: string;
+  readonly rememberForFuture?: boolean;
 };
 
 export const MERCHANT_CONFIRMATION_FAILURE_MESSAGE =
@@ -48,6 +50,9 @@ export type MerchantReviewState =
     } & ReviewActionErrors);
 
 type ReviewRepositories = {
+  readonly assignCategoryAndRemember: (
+    input: RememberedTransactionCategoryAssignment,
+  ) => void;
   readonly accountRepository: Pick<AccountRepository, "list">;
   readonly categoryRepository: Pick<CategoryRepository, "getById" | "list">;
   readonly transactionRepository: Pick<
@@ -188,11 +193,19 @@ export function createMerchantReviewController(
         ) {
           throw new Error("Assignable Category is unavailable.");
         }
-        repositories.transactionRepository.assignCategory({
+        const assignment = {
           householdId: action.householdId,
           transactionIds: action.group.transactionIds,
           categoryId: category.id,
-        });
+        };
+        if (action.rememberForFuture === true) {
+          repositories.assignCategoryAndRemember({
+            ...assignment,
+            normalizedDescription: action.group.normalizedDescription,
+          });
+        } else {
+          repositories.transactionRepository.assignCategory(assignment);
+        }
       } catch {
         categoryError = CATEGORY_ASSIGNMENT_FAILURE_MESSAGE;
       } finally {
@@ -226,6 +239,8 @@ function isCategoryAction(action: MerchantReviewCategoryAction): boolean {
     action.group !== null &&
     (action.group.status === "unknown" ||
       action.group.status === "suggested") &&
+    (action.rememberForFuture === undefined ||
+      typeof action.rememberForFuture === "boolean") &&
     [
       action.householdId,
       action.group.normalizedDescription,

@@ -28,6 +28,8 @@ import {
 } from "../../merchants/src/index";
 import { AccountRepository } from "./account-repository";
 import { CategoryRepository } from "./category-repository";
+import { CategoryRuleRepository } from "./category-rule-repository";
+import { assignCategoryAndRemember } from "./assign-category-and-remember";
 import { HouseholdRepository } from "./household-repository";
 import { MerchantRepository } from "./merchant-repository";
 import {
@@ -153,6 +155,9 @@ function confirmationReview() {
     transactionRepository,
     merchantRepository: new MerchantRepository(store.database),
     merchantRuleRepository: repository,
+    assignCategoryAndRemember: (
+      input: Parameters<typeof assignCategoryAndRemember>[1],
+    ) => assignCategoryAndRemember(store.database, input),
   };
   const states: MerchantReviewState[] = [];
   const controller = createMerchantReviewController(repositories, (state) =>
@@ -710,6 +715,12 @@ describe("MerchantRuleRepository with real SQLite", () => {
     );
     expect(repository.list("household-a")).toEqual(rulesBefore);
     expect(repository.list("household-b")).toEqual([]);
+    expect(
+      new CategoryRuleRepository(store.database).get(
+        "household-a",
+        action.group.normalizedDescription,
+      ),
+    ).toBeUndefined();
     expect(suggestedAction(review.state()).group.categoryState).toEqual({
       kind: "categorized",
       category: review.target,
@@ -789,6 +800,253 @@ describe("MerchantRuleRepository with real SQLite", () => {
       status: "unknown",
       categoryState: { kind: "categorized", category: review.target },
     });
+  });
+
+  it("explicitly remembers an exact description while changing only the selected current group's categories", () => {
+    const review = categoryReview();
+    const action = suggestedAction(review.state());
+    const rowsBefore = store.sqlite
+      .prepare("SELECT * FROM transactions ORDER BY id")
+      .all();
+    const remembered = {
+      householdId: action.householdId,
+      normalizedDescription: action.group.normalizedDescription,
+      categoryId: review.target.id,
+    };
+    const applyAndRemember = vi.spyOn(
+      review.repositories,
+      "assignCategoryAndRemember",
+    );
+
+    review.controller.applyCategory({
+      ...action,
+      categoryId: review.target.id,
+      rememberForFuture: true,
+    });
+
+    expect(applyAndRemember).toHaveBeenCalledExactlyOnceWith({
+      ...remembered,
+      transactionIds: action.group.transactionIds,
+    });
+    const rules = new CategoryRuleRepository(store.database);
+    expect(
+      rules.get(remembered.householdId, remembered.normalizedDescription),
+    ).toEqual(remembered);
+    expect(
+      rules.get("household-b", remembered.normalizedDescription),
+    ).toBeUndefined();
+    expect(
+      store.sqlite.prepare("SELECT * FROM transactions ORDER BY id").all(),
+    ).toEqual(
+      rowsBefore.map((row) =>
+        action.group.transactionIds.includes(row.id as string)
+          ? { ...row, category_id: review.target.id }
+          : row,
+      ),
+    );
+    expect(repository.list("household-a")).toEqual([]);
+    expect(repository.list("household-b")).toEqual([]);
+    expect(suggestedAction(review.state()).group.categoryState).toEqual({
+      kind: "categorized",
+      category: review.target,
+    });
+    expect(
+      suggestedAction(review.state(), "household-a", "USD").group.categoryState,
+    ).toEqual({ kind: "uncategorized" });
+    expect(
+      suggestedAction(review.state(), "household-b").group.categoryState,
+    ).toEqual({ kind: "uncategorized" });
+    expect(readyState(review).categoryError).toBeUndefined();
+    const reopenedStates: MerchantReviewState[] = [];
+    createMerchantReviewController(
+      {
+        ...review.repositories,
+        categoryRepository: new CategoryRepository(store.database),
+        transactionRepository: new TransactionRepository(store.database),
+      },
+      (state) => reopenedStates.push(state),
+    ).load();
+    expect(reopenedStates.at(-1)).toEqual(review.state());
+    expect(
+      new CategoryRuleRepository(store.database).get(
+        remembered.householdId,
+        remembered.normalizedDescription,
+      ),
+    ).toEqual(remembered);
+  });
+
+  it.each(["target-category", "existing-category"])(
+    "rejects a raced identical or conflicting remembered rule targeting %s without partially changing the current group",
+    (categoryId) => {
+      const review = categoryReview();
+      const action = suggestedAction(review.state());
+      const existingRule = {
+        householdId: action.householdId,
+        normalizedDescription: action.group.normalizedDescription,
+        categoryId,
+      };
+      const rules = new CategoryRuleRepository(store.database);
+      rules.create(existingRule);
+      const rowsBefore = store.sqlite
+        .prepare("SELECT * FROM transactions ORDER BY id")
+        .all();
+
+      review.controller.applyCategory({
+        ...action,
+        categoryId: review.target.id,
+        rememberForFuture: true,
+      });
+
+      expect(
+        rules.get(existingRule.householdId, existingRule.normalizedDescription),
+      ).toEqual(existingRule);
+      expect(
+        store.sqlite.prepare("SELECT * FROM transactions ORDER BY id").all(),
+      ).toEqual(rowsBefore);
+      expect(readyState(review).categoryError).toBe(
+        CATEGORY_ASSIGNMENT_FAILURE_MESSAGE,
+      );
+      expect(readyState(review).submitting).toBe(false);
+      expect(suggestedAction(review.state()).group.categoryState).toEqual({
+        kind: "mixed",
+      });
+      expect(
+        rules.get("household-b", existingRule.normalizedDescription),
+      ).toBeUndefined();
+      expect(repository.list("household-a")).toEqual([]);
+    },
+  );
+
+  it("remembers an unknown group's exact description without creating a Merchant rule or confirming identity", () => {
+    const review = categoryReview();
+    const queue = readyState(review).queues.find(
+      (value) =>
+        value.householdId === "household-a" && value.currency === "AUD",
+    )!;
+    const group = queue.groups.find((value) => value.status === "unknown")!;
+
+    review.controller.applyCategory({
+      householdId: queue.householdId,
+      group,
+      categoryId: review.target.id,
+      rememberForFuture: true,
+    });
+
+    expect(
+      new CategoryRuleRepository(store.database).get(
+        queue.householdId,
+        group.normalizedDescription,
+      ),
+    ).toEqual({
+      householdId: queue.householdId,
+      normalizedDescription: "Other Synthetic Shop",
+      categoryId: review.target.id,
+    });
+    expect(repository.list(queue.householdId)).toEqual([]);
+    const rebuilt = readyState(review)
+      .queues.find((value) => value.householdId === queue.householdId)!
+      .groups.find(
+        (value) => value.normalizedDescription === group.normalizedDescription,
+      )!;
+    expect(rebuilt.status).toBe("unknown");
+    expect(rebuilt.categoryState).toEqual({
+      kind: "categorized",
+      category: review.target,
+    });
+    expect(suggestedAction(review.state()).group.categoryState).toEqual({
+      kind: "mixed",
+    });
+  });
+
+  it("rolls back the remembered rule and every category write after a later group update fails", () => {
+    const review = categoryReview();
+    const action = suggestedAction(review.state());
+    const rowsBefore = store.sqlite
+      .prepare("SELECT * FROM transactions ORDER BY id")
+      .all();
+    store.sqlite.exec(`
+      CREATE TRIGGER fail_remembered_category BEFORE UPDATE OF category_id ON transactions
+      WHEN NEW.id = 'pending-a-aud-second'
+      BEGIN SELECT RAISE(ABORT, 'synthetic private SQL detail'); END;
+    `);
+    store.queries.length = 0;
+
+    review.controller.applyCategory({
+      ...action,
+      categoryId: review.target.id,
+      rememberForFuture: true,
+    });
+
+    expect(
+      store.queries.filter((query) => /^update /i.test(query)),
+    ).toHaveLength(2);
+    expect(
+      store.sqlite.prepare("SELECT * FROM transactions ORDER BY id").all(),
+    ).toEqual(rowsBefore);
+    const rules = new CategoryRuleRepository(store.database);
+    expect(
+      rules.get(action.householdId, action.group.normalizedDescription),
+    ).toBeUndefined();
+    expect(readyState(review).categoryError).toBe(
+      CATEGORY_ASSIGNMENT_FAILURE_MESSAGE,
+    );
+    expect(readyState(review).submitting).toBe(false);
+    expect(suggestedAction(review.state()).group.categoryState).toEqual({
+      kind: "mixed",
+    });
+    expect(JSON.stringify(review.state())).not.toContain("private SQL");
+    expect(repository.list("household-a")).toEqual([]);
+    store.sqlite.exec("DROP TRIGGER fail_remembered_category;");
+    review.controller.applyCategory({
+      ...suggestedAction(review.state()),
+      categoryId: review.target.id,
+      rememberForFuture: true,
+    });
+    expect(readyState(review).categoryError).toBeUndefined();
+    expect(
+      rules.get(action.householdId, action.group.normalizedDescription),
+    ).toEqual({
+      householdId: action.householdId,
+      normalizedDescription: action.group.normalizedDescription,
+      categoryId: review.target.id,
+    });
+  });
+
+  it("guards reentrant and stale remembered submissions with one durable write", () => {
+    const review = categoryReview();
+    const action = {
+      ...suggestedAction(review.state()),
+      categoryId: review.target.id,
+      rememberForFuture: true,
+    };
+    const applyAndRemember = vi
+      .spyOn(review.repositories, "assignCategoryAndRemember")
+      .mockImplementation((input) => {
+        review.controller.applyCategory(action);
+        review.controller.confirm(action);
+        assignCategoryAndRemember(store.database, input);
+      });
+
+    review.controller.applyCategory(action);
+    review.controller.applyCategory(action);
+
+    expect(applyAndRemember).toHaveBeenCalledTimes(1);
+    expect(
+      store.sqlite.prepare("SELECT COUNT(*) AS count FROM category_rules").get()
+        ?.count,
+    ).toBe(1);
+    expect(
+      new CategoryRuleRepository(store.database).get(
+        action.householdId,
+        action.group.normalizedDescription,
+      ),
+    ).toEqual({
+      householdId: action.householdId,
+      normalizedDescription: action.group.normalizedDescription,
+      categoryId: action.categoryId,
+    });
+    expect(readyState(review).categoryError).toBeUndefined();
+    expect(repository.list("household-a")).toEqual([]);
   });
 
   it("rolls back an entire reviewed group after a later category write failure and reloads sanitized source truth", () => {
