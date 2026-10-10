@@ -1,7 +1,7 @@
 # Ledgerase Domain Model
 
 This document currently defines Money, Transaction, Account, Merchant, Category,
-Household, Member, Import, Receipt, ReceiptItem, BudgetPeriod, and Budget.
+Household, Member, Import, Receipt, ReceiptItem, BudgetPeriod, CategoryBudget, and Budget.
 
 ## Money
 
@@ -1375,6 +1375,34 @@ Construction and membership do not consult the current date or a timezone.
 Changing a range requires a new value and leaves the original unchanged. Recurring
 schedules, allocations, spending calculations, rollover, and persistence are deferred.
 
+## CategoryBudget
+
+CategoryBudget is an immutable planned target for a canonical Category. It is an
+independent value intended for inclusion in a Budget, without its own identity,
+Budget ID, Household, or BudgetPeriod. The containing Budget supplies shared
+context and enforces its currency boundary; the Budget aggregate remains deferred.
+
+`packages/domain` exposes a frozen `CategoryBudget` with three readonly fields,
+all explicitly supplied through its options constructor:
+
+- `categoryId`: an opaque nonblank string, preserved exactly without trimming.
+- `amount`: an existing immutable Money instance, retained unchanged with its
+  explicit currency and safe integer minor units. No decimal scale is assumed.
+- `role`: exactly `"spending"` or `"income"`, supplied independently of Category
+  name and Money sign, without defaults or inference.
+
+The amount must be nonnegative for either role. Zero explicitly means no planned
+spending or income for that Category and role, and differs from an absent target.
+Negative allocations fail explicitly; refunds and reversals are actual activity.
+This isolated value accepts any currency accepted by Money, without conversion,
+inferred currency, or cross-target currency checks.
+
+CategoryBudget retains only the Category reference, not its name or lifecycle
+status. Category currently has no Household field. Category existence, selection
+eligibility, and application context checks belong outside this value. Construction
+preserves inputs; changing a target requires a new value. Calculations, persistence,
+and automatic category assignment remain deferred.
+
 ## Budget
 
 Budget is Ledgerase's household financial plan for a defined calendar period.
@@ -1563,7 +1591,7 @@ Budgets require no account registration, backend, or cross-household sharing.
 ### Not handled yet
 
 - Budget/BudgetLine or BudgetCharacter models, concrete APIs, or schemas beyond
-  the BudgetPeriod value defined above.
+  the BudgetPeriod and CategoryBudget values defined above.
 - Reporting/variance algorithms, categorization rules, transaction matching,
   refund/reimbursement netting, or historical reporting snapshots.
 - Rollover, envelopes, carry-forward, recurring templates, or per-Member budgets.

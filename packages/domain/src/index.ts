@@ -1,5 +1,10 @@
 export { Money } from "./money";
 export { BudgetPeriod, type BudgetPeriodOptions } from "./budget-period";
+export {
+  CategoryBudget,
+  type CategoryBudgetOptions,
+  type CategoryBudgetRole,
+} from "./category-budget";
 export { Transaction, type TransactionOptions } from "./transaction";
 export {
   Account,
