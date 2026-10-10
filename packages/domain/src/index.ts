@@ -9,6 +9,11 @@ export {
 } from "./category-budget";
 export { Transaction, type TransactionOptions } from "./transaction";
 export {
+  TransactionIncomeClassification,
+  type TransactionIncomeClassificationOptions,
+  type IncomeClassification,
+} from "./transaction-income-classification";
+export {
   Account,
   type AccountOptions,
   type AccountType,

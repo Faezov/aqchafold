@@ -181,7 +181,7 @@ Target:
 - [X] Separate discretionary spending
 - [X] Separate irregular spending
 - [X] Calculate monthly category totals
-- [ ] Calculate income
+- [X] Calculate income
 - [ ] Calculate spending
 - [ ] Calculate monthly cash flow
 - [ ] Create basic dashboard

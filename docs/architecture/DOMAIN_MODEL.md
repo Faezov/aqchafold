@@ -1,7 +1,8 @@
 # Ledgerase Domain Model
 
-This document currently defines Money, Transaction, Account, Merchant, Category,
-Household, Member, Import, Receipt, ReceiptItem, BudgetPeriod, CategoryBudget, and Budget.
+This document currently defines Money, Transaction, TransactionIncomeClassification,
+Account, Merchant, Category, Household, Member, Import, Receipt, ReceiptItem,
+BudgetPeriod, CategoryBudget, and Budget.
 
 ## Money
 
@@ -206,6 +207,28 @@ without silent merging, deletion, or claims that the import is fully verified.
 - What internal identifier format and source identifier scoping will be used?
 - How will transfer/refund links and confirmation or review state be represented?
 - Which evidence is sufficient to confirm duplicates across overlapping imports?
+
+## TransactionIncomeClassification
+
+TransactionIncomeClassification is an immutable, frozen local decision about one
+canonical Transaction's income treatment. Its constructor requires:
+
+- `transactionId`: a nonblank opaque Transaction reference, preserved exactly
+  without trimming or normalization.
+- `classification`: exactly `"income"` or `"not-income"`, supplied explicitly.
+
+For v0.1 these supplied decisions are authoritative income classification evidence.
+No classification record means unresolved economic income meaning; there is no
+`"unresolved"` classification value or default. `"not-income"` excludes activity
+from income only and does not establish spending, transfer, refund, reimbursement,
+or any other economic kind. Malformed or missing fields fail explicitly.
+
+Decisions are independent of Transaction sign, amount, Category, Merchant,
+description, history, and CategoryBudget targets or roles. None creates or infers
+a decision. CategoryBudget.role remains planning-only. Changing a decision requires
+a new value and never mutates the Transaction or constructor input. Decision
+provenance, persistence, review UI, suggestions, and broader economic classification
+remain deferred; this value does not identify or match transfers/refunds.
 
 ## Account
 
@@ -1467,6 +1490,46 @@ Merchants, or descriptions. Transfer and refund movements contribute raw
 debit/credit activity here; their economic exclusion, offsetting, matching, and
 netting remain separate deferred concerns.
 
+## Monthly income
+
+`packages/budgeting` exposes the pure
+`calculateMonthlyIncome(transactions: readonly Transaction[], classifications: readonly TransactionIncomeClassification[])`
+function. It returns a readonly, frozen array of frozen `MonthlyIncomeTotal`
+records containing `month`, `currency`, and `total: Money`.
+
+Only Transactions explicitly classified `"income"` contribute their canonical
+signed Money amount. Positive amounts increase income; negative explicitly
+classified amounts reduce it as income reversals/adjustments. A negative movement
+is not an income reversal without that decision. The result represents **net
+classified income activity**, not gross positive receipts; negative totals are valid.
+Transactions classified `"not-income"` or having no decision are excluded.
+Unresolved activity remains visible through raw monthly category debit/credit totals
+without being forced into economic income. Transfer, refund, reimbursement, and
+spending classification policies remain separate concerns; neither sign nor text
+establishes any of those kinds.
+
+Eligibility is independent of Category assignment or the presence/role of a
+CategoryBudget target. Categorized and uncategorized classified income both
+participate. BudgetPeriod and planning targets are not inputs to this calculation.
+
+Groups use Gregorian `YYYY-MM` derived only from `postingDate`, within existing
+years `0001–9999`, and the exact Money currency. `transactionDate`, timestamps,
+locale, timezone, and current date have no effect. Currencies never combine; no
+FX or decimal-scale assumptions are involved. Results sort by month ascending,
+then currency ascending, using ordinary JavaScript string ordering.
+
+All supplied Transaction IDs and classification transactionIds must be unique;
+every decision must reference a supplied Transaction by exact opaque ID. Duplicate,
+conflicting, and dangling references fail before aggregation, including decisions
+for zero or excluded activity. Transactions without decisions remain valid.
+
+Each signed accumulation checks both safe-integer bounds before adding. Any unsafe
+intermediate sum in input order throws, even if later activity could cancel it;
+amounts never round. Zero-only activity creates no otherwise empty group. A group
+with nonzero classified activity that cancels exactly to zero is retained with
+canonical Money zero. Neither input array nor any supplied value is mutated;
+returned Money values retain their existing immutability.
+
 ## Budget
 
 Budget is Ledgerase's household financial plan for a defined calendar period.
@@ -1562,7 +1625,10 @@ decisions. Transaction signs continue to describe Account balance changes;
 negative does not inherently mean spending, nor positive income. Unresolved
 economic meaning remains visible for review rather than being guessed from sign.
 The raw monthly category debit/credit totals above do not establish that economic
-meaning and must not be presented as classified spending/income actuals.
+meaning and must not be presented as classified spending/income actuals. Monthly
+income now uses explicit TransactionIncomeClassification decisions as described
+above; this does not make planning roles an actual-income classifier or establish
+spending classification.
 
 For eligible activity, distinguish Category actuals with an explicit target,
 Category actuals without a target, and uncategorized actuals with no established
