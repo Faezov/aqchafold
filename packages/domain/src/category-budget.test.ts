@@ -6,36 +6,61 @@ const baseOptions: CategoryBudgetOptions = {
   amount: new Money(1234, "AUD"),
   role: "spending",
   spendingCharacter: "essential",
+  spendingRegularity: "regular",
+};
+
+const incomeOptions: CategoryBudgetOptions = {
+  categoryId: baseOptions.categoryId,
+  amount: baseOptions.amount,
+  role: "income",
 };
 
 const validTargets: [string, CategoryBudgetOptions][] = [
-  ["essential spending", baseOptions],
+  ["essential regular spending", baseOptions],
   [
-    "discretionary spending",
+    "essential irregular spending",
+    { ...baseOptions, spendingRegularity: "irregular" },
+  ],
+  [
+    "discretionary regular spending",
     { ...baseOptions, spendingCharacter: "discretionary" },
   ],
   [
-    "income",
+    "discretionary irregular spending",
     {
-      categoryId: baseOptions.categoryId,
-      amount: baseOptions.amount,
-      role: "income",
+      ...baseOptions,
+      spendingCharacter: "discretionary",
+      spendingRegularity: "irregular",
     },
   ],
+  ["income", incomeOptions],
 ];
 
 describe("CategoryBudget", () => {
   it.each(validTargets)(
     "retains an explicit %s target with its supplied Money",
     (_label, options) => {
+      const before = { ...options };
       const target = new CategoryBudget(options);
       expect(target.categoryId).toBe(baseOptions.categoryId);
       expect(target.role).toBe(options.role);
       expect(target.spendingCharacter).toBe(options.spendingCharacter);
+      expect(target.spendingRegularity).toBe(options.spendingRegularity);
       expect("spendingCharacter" in target).toBe(options.role === "spending");
+      expect("spendingRegularity" in target).toBe(options.role === "spending");
+      expect("spendingCharacter" in { ...target }).toBe(
+        options.role === "spending",
+      );
+      expect("spendingRegularity" in { ...target }).toBe(
+        options.role === "spending",
+      );
       expect(target.amount).toBe(baseOptions.amount);
       expect(target.amount.amountMinor).toBe(1234);
       expect(target.amount.currency).toBe("AUD");
+      expect(options).toEqual(before);
+      expect(Object.isFrozen(options)).toBe(false);
+      expect(Object.isFrozen(target)).toBe(true);
+      expect(Object.isFrozen(target.amount)).toBe(true);
     },
   );
 
@@ -65,6 +90,7 @@ describe("CategoryBudget", () => {
       "amount",
       "role",
       "spendingCharacter",
+      "spendingRegularity",
     ] as const) {
       const options = { ...baseOptions };
       Reflect.deleteProperty(options, field);
@@ -154,7 +180,7 @@ describe("CategoryBudget", () => {
       undefined,
       null,
     ]) {
-      const options = { ...baseOptions, role: "income", spendingCharacter };
+      const options = { ...incomeOptions, spendingCharacter };
       expect(() => Reflect.construct(CategoryBudget, [options])).toThrow(
         TypeError,
       );
@@ -163,15 +189,60 @@ describe("CategoryBudget", () => {
     }
   });
 
-  it("constrains spending/income character combinations in constructor types", () => {
+  it("rejects missing or unsupported spending regularity without inference or defaults", () => {
+    for (const spendingRegularity of [
+      undefined,
+      null,
+      "",
+      "Regular",
+      "Irregular",
+      " regular ",
+      " irregular ",
+      "essential",
+      "discretionary",
+      "monthly",
+      123,
+    ]) {
+      const options = { ...baseOptions, spendingRegularity };
+      expect(() => Reflect.construct(CategoryBudget, [options])).toThrow(
+        TypeError,
+      );
+      expect(options.spendingRegularity).toBe(spendingRegularity);
+    }
+  });
+
+  it("rejects any regularity field on income targets, even explicit undefined", () => {
+    for (const spendingRegularity of [
+      "regular",
+      "irregular",
+      undefined,
+      null,
+    ]) {
+      const options = { ...incomeOptions, spendingRegularity };
+      expect(() => Reflect.construct(CategoryBudget, [options])).toThrow(
+        TypeError,
+      );
+      expect(options.role).toBe("income");
+      expect(options.spendingRegularity).toBe(spendingRegularity);
+    }
+  });
+
+  it("constrains spending/income planning fields in constructor types", () => {
     type Income = Extract<CategoryBudgetOptions, { role: "income" }>;
     type Spending = Extract<CategoryBudgetOptions, { role: "spending" }>;
     expectTypeOf<Income & { spendingCharacter: "essential" }>().toBeNever();
+    expectTypeOf<Income & { spendingRegularity: "regular" }>().toBeNever();
     expectTypeOf<
       Omit<Spending, "spendingCharacter">
     >().not.toExtend<CategoryBudgetOptions>();
+    expectTypeOf<
+      Omit<Spending, "spendingRegularity">
+    >().not.toExtend<CategoryBudgetOptions>();
     expectTypeOf<Spending["spendingCharacter"]>().toEqualTypeOf<
       "essential" | "discretionary"
+    >();
+    expectTypeOf<Spending["spendingRegularity"]>().toEqualTypeOf<
+      "regular" | "irregular"
     >();
   });
 
@@ -183,8 +254,28 @@ describe("CategoryBudget", () => {
     });
     expect(original.spendingCharacter).toBe("essential");
     expect(changed.spendingCharacter).toBe("discretionary");
+    expect(changed).not.toBe(original);
+    expect(original.spendingRegularity).toBe("regular");
+    expect(changed.spendingRegularity).toBe(original.spendingRegularity);
     expect(changed.categoryId).toBe(original.categoryId);
     expect(changed.amount).toBe(original.amount);
+  });
+
+  it("changes regularity only through a new value without changing character or Category", () => {
+    const original = new CategoryBudget(baseOptions);
+    const changed = new CategoryBudget({
+      ...baseOptions,
+      spendingRegularity: "irregular",
+    });
+    expect(original.spendingRegularity).toBe("regular");
+    expect(changed.spendingRegularity).toBe("irregular");
+    expect(changed).not.toBe(original);
+    expect(original.spendingCharacter).toBe("essential");
+    expect(changed.spendingCharacter).toBe(original.spendingCharacter);
+    expect(changed.categoryId).toBe(original.categoryId);
+    expect(changed.amount).toBe(original.amount);
+    expect(Object.isFrozen(original)).toBe(true);
+    expect(Object.isFrozen(changed)).toBe(true);
   });
 
   it("accepts different Money currencies without conversion or minor-unit scale assumptions", () => {
@@ -205,11 +296,13 @@ describe("CategoryBudget", () => {
     options.categoryId = "changed";
     options.amount = new Money(0, "USD");
     options.spendingCharacter = "discretionary";
+    options.spendingRegularity = "irregular";
     for (const field of [
       "categoryId",
       "amount",
       "role",
       "spendingCharacter",
+      "spendingRegularity",
     ] as const) {
       expect(Reflect.set(target, field, undefined)).toBe(false);
       expect(Reflect.defineProperty(target, field, { value: undefined })).toBe(
@@ -225,6 +318,7 @@ describe("CategoryBudget", () => {
     expect(target.categoryId).toBe(baseOptions.categoryId);
     expect(target.role).toBe(baseOptions.role);
     expect(target.spendingCharacter).toBe("essential");
+    expect(target.spendingRegularity).toBe("regular");
     expect(target.amount).toBe(baseOptions.amount);
     expect(target.amount.amountMinor).toBe(1234);
     expect(target.amount.currency).toBe("AUD");

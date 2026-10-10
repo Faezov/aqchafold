@@ -2,6 +2,7 @@ import { Money } from "./money";
 
 export type CategoryBudgetRole = "spending" | "income";
 export type SpendingCharacter = "essential" | "discretionary";
+export type SpendingRegularity = "regular" | "irregular";
 
 export type CategoryBudgetOptions = {
   readonly categoryId: string;
@@ -10,8 +11,13 @@ export type CategoryBudgetOptions = {
   | {
       readonly role: "spending";
       readonly spendingCharacter: SpendingCharacter;
+      readonly spendingRegularity: SpendingRegularity;
     }
-  | { readonly role: "income"; readonly spendingCharacter?: never }
+  | {
+      readonly role: "income";
+      readonly spendingCharacter?: never;
+      readonly spendingRegularity?: never;
+    }
 );
 
 /** Immutable planned category target; its containing Budget supplies shared context. */
@@ -19,8 +25,9 @@ export class CategoryBudget {
   readonly categoryId: string;
   readonly amount: Money;
   readonly role: CategoryBudgetRole;
-  // Income values have no character property, including after object spread.
+  // Income values have neither spending field, including after object spread.
   declare readonly spendingCharacter?: SpendingCharacter;
+  declare readonly spendingRegularity?: SpendingRegularity;
 
   constructor(options: CategoryBudgetOptions) {
     if (typeof options !== "object" || options === null) {
@@ -52,9 +59,23 @@ export class CategoryBudget {
           "Spending targets require an explicit essential or discretionary character.",
         );
       }
+      if (
+        options.spendingRegularity !== "regular" &&
+        options.spendingRegularity !== "irregular"
+      ) {
+        throw new TypeError(
+          "Spending regularity must be explicitly regular or irregular.",
+        );
+      }
       this.spendingCharacter = options.spendingCharacter;
-    } else if ("spendingCharacter" in options) {
-      throw new TypeError("Income targets must not have a spending character.");
+      this.spendingRegularity = options.spendingRegularity;
+    } else if (
+      "spendingCharacter" in options ||
+      "spendingRegularity" in options
+    ) {
+      throw new TypeError(
+        "Income targets must not have spending character or regularity.",
+      );
     }
 
     this.categoryId = options.categoryId;

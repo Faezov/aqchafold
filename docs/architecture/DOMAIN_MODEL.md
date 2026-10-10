@@ -585,15 +585,15 @@ decisions unless a separate category correction is deliberately made.
 
 ### Independence from budget character
 
-Essential, discretionary, irregular, and work/admin treatment are separate
-dimensions, not intrinsic Category identities or mandatory Category properties.
-Dining might receive discretionary treatment; Medical might be essential or
-irregular; Transport may receive different treatment depending on context.
+Spending necessity (essential/discretionary) and regularity (regular/irregular)
+are independent planning dimensions, not intrinsic Category identities or
+mandatory Category properties. The same Category may have different combinations
+in different plans. Work/admin treatment remains deferred.
 
 Such treatment can vary without changing Category identity or the Transaction's
-category assignment. CategoryBudget defines explicit essential/discretionary
-planning character for spending allocations below; broader budget-character
-representation remains deferred.
+category assignment. CategoryBudget defines both explicit planning dimensions
+for spending allocations below; broader budget-character representation remains
+deferred.
 
 ### System-provided and user-created Categories
 
@@ -1394,16 +1394,29 @@ explicitly supplied through its options constructor:
 - `spendingCharacter`: required for spending targets, exactly `"essential"` or
   `"discretionary"`. Essential marks spending explicitly considered necessary in
   this planning context; discretionary marks spending considered optional.
-  The same Category may have different characters in different plans.
+- `spendingRegularity`: required for spending targets, exactly `"regular"` or
+  `"irregular"`. Regular means the household plans this spending as ordinarily
+  recurring or predictably present in its budgeting pattern. Irregular means
+  the household expects/plans the spending but does not treat its occurrence as
+  reliably recurring or predictable in the same way.
 
-Constructor options are a discriminated union: spending requires a character,
-while income must omit it. Income values have no spending-character property.
-Missing/unsupported spending characters and any character field on income
-(including explicit `undefined`) fail at runtime. Character is never inferred
-from Category name, Merchant, descriptions, amount, or historical behavior.
-Changing it requires constructing a new immutable CategoryBudget. Irregular and
-work/admin treatment remain deferred; these two literals are not a complete future
-budget-character taxonomy.
+Necessity and regularity are orthogonal: essential + regular, essential + irregular,
+discretionary + regular, and discretionary + irregular are all valid. Irregular
+does not mean discretionary; essential does not mean regular. The same Category
+may have different characters and regularities in different plans.
+
+Constructor options are a discriminated union: spending requires both character
+and regularity, while income must omit both. Income values have neither spending
+property. Missing/unsupported spending fields and any such field on income
+(including explicit `undefined`) fail at runtime. Neither dimension has a default
+or is inferred from the other, Category name, Merchant, descriptions, transaction
+frequency, amount, dates, or historical behavior. Changing either requires
+constructing a new immutable CategoryBudget.
+
+Regularity is explicit planning metadata only, not a recurrence schedule,
+frequency count, transaction-history inference, anomaly detection, forecasting,
+or rollover/sinking-fund mechanism. Those concerns, work/admin treatment, and
+broader budget-character abstractions remain deferred.
 
 The amount must be nonnegative for either role. Zero explicitly means no planned
 spending or income for that Category and role, and differs from an absent target.
@@ -1544,15 +1557,13 @@ it with a purchase. Detailed matching and netting/reporting policies are deferre
 
 ### Independence from budget character and Merchant
 
-Essential, discretionary, irregular, and work/admin treatment remains separate
-from Category identity and Merchant identity/type. Dining may receive discretionary
-treatment; Medical may be essential or irregular depending on household intent.
-Changing treatment need not change Category identity or Transaction assignment.
-Merchant evidence may later inform a suggestion but must not decide treatment.
-CategoryBudget represents explicit essential/discretionary planning character
-for spending targets only; income targets have no such classification. Broader
-budget-character representation, including irregular and work/admin treatment,
-remains deferred. No intrinsic Category/Merchant property is introduced.
+Spending necessity (essential/discretionary) and regularity (regular/irregular)
+remain independent of Category identity and Merchant identity/type, and of each
+other. Changing either need not change Category identity or Transaction assignment.
+CategoryBudget represents both as explicit planning metadata for spending targets
+only; income targets have neither classification. Neither is inferred from
+Merchant evidence or activity. Work/admin treatment and broader budget-character
+representation remain deferred. No intrinsic Category/Merchant property is introduced.
 
 ### Variance, edits, and rollover
 
@@ -1625,6 +1636,6 @@ Budgets require no account registration, backend, or cross-household sharing.
   greater than period spending, without changing posting dates or treating them as income?
 - What historical plan/version tracking or explicit snapshots, if any, will be
   needed after deliberate edits and financial classification corrections?
-- How should later irregular and work/admin treatment preserve independent planning
-  meaning alongside essential/discretionary character without becoming intrinsic
-  to Category or Merchant?
+- How should later work/admin treatment preserve independent planning meaning
+  alongside spending necessity and regularity without becoming intrinsic to
+  Category or Merchant?
