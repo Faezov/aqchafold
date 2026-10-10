@@ -180,7 +180,7 @@ Target:
 - [X] Separate essential spending
 - [X] Separate discretionary spending
 - [X] Separate irregular spending
-- [ ] Calculate monthly category totals
+- [X] Calculate monthly category totals
 - [ ] Calculate income
 - [ ] Calculate spending
 - [ ] Calculate monthly cash flow

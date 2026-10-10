@@ -1430,6 +1430,43 @@ eligibility, and application context checks belong outside this value. Construct
 preserves inputs; changing a target requires a new value. Calculations, persistence,
 and automatic category assignment remain deferred.
 
+## Monthly category totals
+
+`packages/budgeting` exposes the pure
+`calculateMonthlyCategoryTotals(transactions: readonly Transaction[])` function,
+returning a readonly array of frozen `MonthlyCategoryTotal` records. These are
+raw canonical financial activity totals, not economic spending/income actuals
+or planned targets. Neither BudgetPeriod nor CategoryBudget is an input.
+
+Each result contains:
+
+- `month`: Gregorian `YYYY-MM`, derived only from canonical `postingDate` in
+  years `0001–9999`. `transactionDate` does not affect grouping; no timestamps,
+  locale, timezone, current date, or implicit month selection is involved.
+- `categoryId`: the exact canonical reference when supplied. For uncategorized
+  activity the property is omitted/undefined, without a fake Category identity.
+- `currency`: the exact canonical Money currency. Groups never mix currencies;
+  no FX, currency normalization, or decimal-scale assumptions are introduced.
+- `debitTotal`: nonnegative Money summing magnitudes of negative amounts.
+- `creditTotal`: nonnegative Money summing positive amounts, separately from debits.
+
+Zero amounts contribute nothing and do not create an otherwise empty group.
+Nonzero activity is grouped by month, Category reference or its absence, and
+currency; uncategorized activity remains explicit in the returned results.
+Each accumulation checks the safe-integer bound before adding and throws on
+overflow rather than rounding. Debit and credit totals never net or combine.
+
+Results use ordinary JavaScript string ordering: month ascending, categorized
+results first with category IDs ascending, uncategorized results last within
+each month, and currency ascending within each Category/uncategorized group.
+Inputs remain unchanged; the returned array, records, and Money are frozen.
+
+Sign describes Account balance direction only. This calculation does not infer
+spending, income, transfers, refunds, or reimbursements from signs, Categories,
+Merchants, or descriptions. Transfer and refund movements contribute raw
+debit/credit activity here; their economic exclusion, offsetting, matching, and
+netting remain separate deferred concerns.
+
 ## Budget
 
 Budget is Ledgerase's household financial plan for a defined calendar period.
@@ -1524,6 +1561,8 @@ from canonical Transactions and established economic meanings or explicit local
 decisions. Transaction signs continue to describe Account balance changes;
 negative does not inherently mean spending, nor positive income. Unresolved
 economic meaning remains visible for review rather than being guessed from sign.
+The raw monthly category debit/credit totals above do not establish that economic
+meaning and must not be presented as classified spending/income actuals.
 
 For eligible activity, distinguish Category actuals with an explicit target,
 Category actuals without a target, and uncategorized actuals with no established
