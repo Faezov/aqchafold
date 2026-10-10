@@ -3,6 +3,7 @@ import {
   createLocalAccount,
   HouseholdRepository,
   ImportRepository,
+  MerchantRepository,
   MerchantRuleRepository,
   migrateLedgeraseDatabase,
   openLedgeraseDatabase,
@@ -31,6 +32,7 @@ type AppState =
       householdRepository: HouseholdRepository;
       importRepository: ImportRepository;
       transactionRepository: TransactionRepository;
+      merchantRepository: MerchantRepository;
       merchantRuleRepository: MerchantRuleRepository;
     };
 
@@ -157,6 +159,7 @@ export default function App() {
             const householdRepository = new HouseholdRepository(database);
             const importRepository = new ImportRepository(database);
             const transactionRepository = new TransactionRepository(database);
+            const merchantRepository = new MerchantRepository(database);
             const merchantRuleRepository = new MerchantRuleRepository(database);
             retained = true;
             retainedDatabase = database;
@@ -167,6 +170,7 @@ export default function App() {
               householdRepository,
               importRepository,
               transactionRepository,
+              merchantRepository,
               merchantRuleRepository,
             });
           }
@@ -243,6 +247,7 @@ export default function App() {
         <MerchantReviewScreen
           accountRepository={state.accountRepository}
           transactionRepository={state.transactionRepository}
+          merchantRepository={state.merchantRepository}
           merchantRuleRepository={state.merchantRuleRepository}
           onBack={returnHome}
         />

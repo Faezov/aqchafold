@@ -4,7 +4,9 @@ export type {
   MerchantDescriptionNormalizer,
   MerchantNormalizationResult,
 } from "./normalization";
+export { normalizeMerchantDescription } from "./normalization";
 export { normalizePaymentProcessorPrefix } from "./payment-processor-prefix";
+export { normalizeStatementMetadataSuffix } from "./statement-metadata-suffix";
 export {
   confirmedMerchant,
   resolveMerchantIdentity,

@@ -1,3 +1,6 @@
+import { normalizePaymentProcessorPrefix } from "./payment-processor-prefix";
+import { normalizeStatementMetadataSuffix } from "./statement-metadata-suffix";
+
 /** Derived text candidate, never a Merchant identity or Category assignment. */
 export type MerchantNormalizationResult = {
   /**
@@ -21,3 +24,11 @@ export type MerchantNormalizationResult = {
 export interface MerchantDescriptionNormalizer {
   (rawDescription: string): MerchantNormalizationResult;
 }
+
+/** Inspect raw suffix lines first, then normalize whitespace and one prefix. */
+export const normalizeMerchantDescription: MerchantDescriptionNormalizer = (
+  rawDescription,
+) =>
+  normalizePaymentProcessorPrefix(
+    normalizeStatementMetadataSuffix(rawDescription).normalizedDescription,
+  );

@@ -14,8 +14,8 @@ import {
 } from "@aqchafold/domain";
 import { drizzle } from "drizzle-orm/expo-sqlite/driver";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { buildMerchantReviewQueues } from "../../../apps/mobile/src/presentation/merchant-review-data";
 import {
-  normalizePaymentProcessorPrefix,
   resolveMerchantAlias,
   resolveMerchantIdentity,
 } from "../../merchants/src/index";
@@ -373,8 +373,9 @@ describe("MerchantRuleRepository with real SQLite", () => {
     },
   );
 
-  it("does not learn rules from normalized text or apply explicit rules to Transactions", () => {
-    new AccountRepository(store.database).create(
+  it("resolves a persisted rule by its retained description without learning rules or modifying Transactions", () => {
+    const accounts = new AccountRepository(store.database);
+    accounts.create(
       new Account({
         id: "synthetic-account",
         householdId: "household-a",
@@ -391,20 +392,30 @@ describe("MerchantRuleRepository with real SQLite", () => {
       postingDate: "2036-01-31",
       amount: new Money(-1200, "AUD"),
       origin: "imported",
-      rawDescription: " \tSQ *MiXeD Café & 東京!\r\n ",
+      rawDescription: " \tSQ *MiXeD Café & 東京!\r\nValue Date 29/02/2400",
     });
     const transactions = new TransactionRepository(store.database);
     transactions.create(source);
-    const { normalizedDescription } = normalizePaymentProcessorPrefix(
-      source.rawDescription!,
-    );
-    expect(normalizedDescription).toBe("MiXeD Café & 東京!");
+    const merchants = new MerchantRepository(store.database);
+    const review = () =>
+      buildMerchantReviewQueues({
+        transactions: transactions.list(),
+        accounts: accounts.list(),
+        findConfirmedMerchantId: (householdId, normalizedDescription) =>
+          repository.get(householdId, normalizedDescription)?.merchantId,
+        findMerchantById: (merchantId) => merchants.getById(merchantId),
+      });
+    expect(review()[0].groups[0]).toMatchObject({
+      normalizedDescription: "MiXeD Café & 東京!",
+      status: "unknown",
+    });
     expect(repository.list("household-a")).toEqual([]);
-    const mapping = rule({ normalizedDescription });
+    const mapping = rule({ normalizedDescription: "MiXeD Café & 東京!" });
     repository.create(mapping);
-    expect(repository.get(mapping.householdId, normalizedDescription)).toEqual(
-      mapping,
-    );
+    expect(review()).toEqual([]);
+    expect(
+      repository.get(mapping.householdId, mapping.normalizedDescription),
+    ).toEqual(mapping);
     expect(transactions.getById(source.id)).toEqual(source);
     expect(transactions.getById(source.id)?.merchantId).toBeUndefined();
     expect(
@@ -412,7 +423,9 @@ describe("MerchantRuleRepository with real SQLite", () => {
         .prepare("SELECT raw_description FROM transactions WHERE id = ?")
         .get(source.id)?.raw_description,
     ).toBe(source.rawDescription);
-    expect(source.rawDescription).toBe(" \tSQ *MiXeD Café & 東京!\r\n ");
+    expect(source.rawDescription).toBe(
+      " \tSQ *MiXeD Café & 東京!\r\nValue Date 29/02/2400",
+    );
   });
 
   it("retains rules after closing and reopening the local SQLite file", () => {

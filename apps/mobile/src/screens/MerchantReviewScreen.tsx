@@ -1,9 +1,9 @@
 import type {
   AccountRepository,
+  MerchantRepository,
   MerchantRuleRepository,
   TransactionRepository,
 } from "@aqchafold/database";
-import type { UnknownMerchantReviewQueue } from "@aqchafold/merchants";
 import { useEffect, useState } from "react";
 import {
   Pressable,
@@ -14,11 +14,15 @@ import {
   View,
 } from "react-native";
 import { formatTransactionAmount } from "../presentation/format-transaction-amount";
-import { buildMerchantReviewQueues } from "../presentation/merchant-review-data";
+import {
+  buildMerchantReviewQueues,
+  type MerchantReviewQueue,
+} from "../presentation/merchant-review-data";
 
 type MerchantReviewScreenProps = {
   accountRepository: AccountRepository;
   transactionRepository: TransactionRepository;
+  merchantRepository: MerchantRepository;
   merchantRuleRepository: MerchantRuleRepository;
   onBack: () => void;
 };
@@ -26,11 +30,12 @@ type MerchantReviewScreenProps = {
 type ReadState =
   | { status: "loading" }
   | { status: "error" }
-  | { status: "ready"; queues: readonly UnknownMerchantReviewQueue[] };
+  | { status: "ready"; queues: readonly MerchantReviewQueue[] };
 
 export default function MerchantReviewScreen({
   accountRepository,
   transactionRepository,
+  merchantRepository,
   merchantRuleRepository,
   onBack,
 }: MerchantReviewScreenProps) {
@@ -45,6 +50,8 @@ export default function MerchantReviewScreen({
           findConfirmedMerchantId: (householdId, normalizedDescription) =>
             merchantRuleRepository.get(householdId, normalizedDescription)
               ?.merchantId,
+          findMerchantById: (merchantId) =>
+            merchantRepository.getById(merchantId),
         });
         setState({ status: "ready", queues });
       } catch {
@@ -52,7 +59,12 @@ export default function MerchantReviewScreen({
       }
     }, 0);
     return () => clearTimeout(pendingRead);
-  }, [accountRepository, transactionRepository, merchantRuleRepository]);
+  }, [
+    accountRepository,
+    transactionRepository,
+    merchantRepository,
+    merchantRuleRepository,
+  ]);
 
   return (
     <View style={styles.screen}>
@@ -75,8 +87,8 @@ export default function MerchantReviewScreen({
         </Text>
       ) : (
         <SectionList
-          sections={state.queues.map(({ currency, groups }) => ({
-            key: currency,
+          sections={state.queues.map(({ householdId, currency, groups }) => ({
+            key: JSON.stringify([householdId, currency]),
             currency,
             data: groups,
           }))}
@@ -94,6 +106,11 @@ export default function MerchantReviewScreen({
           renderItem={({ item: group, section }) => (
             <View style={styles.group}>
               <Text style={styles.text}>{group.normalizedDescription}</Text>
+              {group.status === "suggested" && (
+                <Text style={styles.text}>
+                  Suggested Merchant: {group.displayName}
+                </Text>
+              )}
               <Text style={styles.text}>
                 Transactions: {group.transactionCount}
               </Text>

@@ -1,6 +1,11 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import reference from "../../../fixtures/bank-statements/commbank/browser-summary-01.reference.json";
-import { normalizePaymentProcessorPrefix } from "./index";
+import { Money, Transaction } from "../../domain/src";
+import {
+  normalizeMerchantDescription,
+  normalizePaymentProcessorPrefix,
+  normalizeStatementMetadataSuffix,
+} from "./index";
 import type {
   MerchantDescriptionNormalizer,
   MerchantNormalizationResult,
@@ -21,6 +26,12 @@ describe("merchant normalization contract", () => {
     expectTypeOf(
       normalizePaymentProcessorPrefix,
     ).toEqualTypeOf<MerchantDescriptionNormalizer>();
+    expectTypeOf(
+      normalizeStatementMetadataSuffix,
+    ).toEqualTypeOf<MerchantDescriptionNormalizer>();
+    expectTypeOf(
+      normalizeMerchantDescription,
+    ).toEqualTypeOf<MerchantDescriptionNormalizer>();
   });
 
   it("allows feeding a derived candidate into a later textual step", () => {
@@ -30,12 +41,12 @@ describe("merchant normalization contract", () => {
   });
 });
 
-describe("suffix evidence remains unresolved", () => {
+describe("ambiguous location and numeric suffixes remain preserved", () => {
   it("preserves every tracked fixture description apart from whitespace", () => {
     const rawDescriptions = reference.sourceRows.map(
       ({ rawDescription }) => rawDescription,
     );
-    const results = rawDescriptions.map(normalizePaymentProcessorPrefix);
+    const results = rawDescriptions.map(normalizeMerchantDescription);
 
     expect(
       results.map(({ normalizedDescription }) => normalizedDescription),
@@ -69,9 +80,157 @@ describe("suffix evidence remains unresolved", () => {
     ["Sydney Tools", "Sydney Tools"],
     ["SQ *KAHII Sydney NS AUS Branch", "KAHII Sydney NS AUS Branch"],
   ])("retains ambiguous location text in %j", (raw, expected) => {
-    expect(normalizePaymentProcessorPrefix(raw)).toEqual({
+    expect(normalizeMerchantDescription(raw)).toEqual({
       normalizedDescription: expected,
     });
+  });
+});
+
+describe("normalizeStatementMetadataSuffix", () => {
+  // All dates, names, card tokens, and monetary text below are invented.
+  const metadata = "Value Date 29/02/2400";
+
+  it.each([
+    [`MiXeD Café & Co.!\n${metadata}`, "MiXeD Café & Co.!"],
+    [`MiXeD Café & Co.!\r\n${metadata}`, "MiXeD Café & Co.!"],
+    [`  MiXeD Café!\t東京\n Outlet  \n${metadata}`, "MiXeD Café! 東京 Outlet"],
+    [`SQ *SYNTHETIC SHOP\n${metadata}`, "SQ *SYNTHETIC SHOP"],
+    [`SYNTHETIC SHOP\nCard xx8080\n${metadata}`, "SYNTHETIC SHOP Card xx8080"],
+    [
+      `SYNTHETIC SHOP\nCard xx8080 CZK 6.54\n${metadata}`,
+      "SYNTHETIC SHOP Card xx8080 CZK 6.54",
+    ],
+    [`SYNTHETIC SHOP\n${metadata}\n${metadata}`, `SYNTHETIC SHOP ${metadata}`],
+  ])("removes only the supported final line in %j", (raw, expected) => {
+    expect(normalizeStatementMetadataSuffix(raw)).toEqual({
+      normalizedDescription: expected,
+    });
+  });
+
+  it.each(["29/02/2404", "01/01/0001", "31/12/9999"])(
+    "accepts a real Gregorian date %s",
+    (date) => {
+      expect(
+        normalizeStatementMetadataSuffix(`SYNTHETIC SHOP\nValue Date ${date}`),
+      ).toEqual({ normalizedDescription: "SYNTHETIC SHOP" });
+    },
+  );
+
+  it.each([
+    "29/02/2500",
+    "29/02/2401",
+    "31/04/2400",
+    "00/01/2400",
+    "32/01/2400",
+    "01/00/2400",
+    "01/13/2400",
+    "01/01/0000",
+    "1/01/2400",
+    "01/1/2400",
+    "01/01/400",
+    "01/01/02400",
+    "01-01-2400",
+    "０１/01/2400",
+  ])("retains impossible or malformed date %s", (date) => {
+    expect(
+      normalizeStatementMetadataSuffix(`SYNTHETIC SHOP\nValue Date ${date}`),
+    ).toEqual({ normalizedDescription: `SYNTHETIC SHOP Value Date ${date}` });
+  });
+
+  it.each([
+    [
+      "SYNTHETIC SHOP\nvalue date 29/02/2400",
+      "SYNTHETIC SHOP value date 29/02/2400",
+    ],
+    [
+      "SYNTHETIC SHOP\nBooking Date 29/02/2400",
+      "SYNTHETIC SHOP Booking Date 29/02/2400",
+    ],
+    [
+      "SYNTHETIC SHOP\nValue Date: 29/02/2400",
+      "SYNTHETIC SHOP Value Date: 29/02/2400",
+    ],
+    [
+      "SYNTHETIC SHOP\nValue Date_29/02/2400",
+      "SYNTHETIC SHOP Value Date_29/02/2400",
+    ],
+    [`SYNTHETIC SHOP ${metadata}`, `SYNTHETIC SHOP ${metadata}`],
+    [`SYNTHETIC SHOP\r${metadata}`, `SYNTHETIC SHOP ${metadata}`],
+    [`SYNTHETIC SHOP\u2028${metadata}`, `SYNTHETIC SHOP ${metadata}`],
+    [`SYNTHETIC SHOP\u2029${metadata}`, `SYNTHETIC SHOP ${metadata}`],
+    [`SYNTHETIC SHOP\n ${metadata}`, `SYNTHETIC SHOP ${metadata}`],
+    ["SYNTHETIC SHOP\nValue  Date 29/02/2400", `SYNTHETIC SHOP ${metadata}`],
+    ["SYNTHETIC SHOP\nValue\tDate 29/02/2400", `SYNTHETIC SHOP ${metadata}`],
+    ["SYNTHETIC SHOP\nValue Date  29/02/2400", `SYNTHETIC SHOP ${metadata}`],
+    [
+      "SYNTHETIC SHOP\nValue Date\u00a029/02/2400",
+      `SYNTHETIC SHOP ${metadata}`,
+    ],
+    [`SYNTHETIC SHOP\n${metadata}\nEXTRA`, `SYNTHETIC SHOP ${metadata} EXTRA`],
+    [`SYNTHETIC SHOP\n${metadata} EXTRA`, `SYNTHETIC SHOP ${metadata} EXTRA`],
+    ...["\n", "\r\n", " ", "\t"].map((ending) => [
+      `SYNTHETIC SHOP\n${metadata}${ending}`,
+      `SYNTHETIC SHOP ${metadata}`,
+    ]),
+    [metadata, metadata],
+    [`\n${metadata}`, metadata],
+    [` \t\r\n${metadata}`, metadata],
+    ["", ""],
+    [" \t\r\n", ""],
+  ])(
+    "preserves unsupported syntax in %j apart from whitespace",
+    (raw, expected) => {
+      expect(normalizeStatementMetadataSuffix(raw)).toEqual({
+        normalizedDescription: expected,
+      });
+    },
+  );
+
+  it.each([
+    [
+      "SYNTHETIC SHOP EXAMPLEVILLE NS AUS",
+      "SYNTHETIC SHOP EXAMPLEVILLE NS AUS",
+    ],
+    ["SYNTHETIC SHOP 42424242", "SYNTHETIC SHOP 42424242"],
+    ["SYNTHETIC SHOP\n42424242", "SYNTHETIC SHOP 42424242"],
+    ["SYNTHETIC SHOP | OUTLET", "SYNTHETIC SHOP | OUTLET"],
+    ["SYNTHETIC SHOP - SERVICE", "SYNTHETIC SHOP - SERVICE"],
+    ["SYNTHETIC SHOP\nCard xx8080", "SYNTHETIC SHOP Card xx8080"],
+    ["SYNTHETIC SHOP\n29/02/2400", "SYNTHETIC SHOP 29/02/2400"],
+  ])("preserves untyped tails in %j", (raw, expected) => {
+    expect(normalizeMerchantDescription(raw)).toEqual({
+      normalizedDescription: expected,
+    });
+  });
+
+  it("composes suffix removal before whitespace and exactly one processor prefix", () => {
+    const raw = ` \tSQ\t*PAYPAL *MiXeD Café!\r\n${metadata}`;
+    const result = normalizeMerchantDescription(raw);
+    expect(result).toEqual({ normalizedDescription: "PAYPAL *MiXeD Café!" });
+    expect(normalizeMerchantDescription(raw)).toEqual(result);
+    expect(
+      normalizeMerchantDescription(`SQ*SYNTHETIC SHOP\n${metadata}`),
+    ).toEqual({ normalizedDescription: "SQ*SYNTHETIC SHOP" });
+  });
+
+  it("retains the source Transaction and rawDescription unchanged", () => {
+    const rawDescription = `  PAYPAL *MiXeD Café!\r\n${metadata}`;
+    const source = new Transaction({
+      id: "synthetic-transaction",
+      accountId: "synthetic-account",
+      postingDate: "2400-03-01",
+      amount: new Money(-321, "AUD"),
+      origin: "imported",
+      rawDescription,
+      merchantId: "existing-merchant",
+      categoryId: "existing-category",
+    });
+    const before = { ...source };
+    expect(normalizeMerchantDescription(source.rawDescription!)).toEqual({
+      normalizedDescription: "MiXeD Café!",
+    });
+    expect(source.rawDescription).toBe(rawDescription);
+    expect(source).toEqual(before);
   });
 });
 

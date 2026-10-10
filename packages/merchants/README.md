@@ -27,7 +27,8 @@ the frozen `Transaction`, SQLite `raw_description`, and repository reads.
 Imported descriptions are required strings, including legitimate `""` values.
 Manual absence remains `undefined`, represented only as SQL `NULL` in storage.
 Callers pass an established string to normalization and keep its result separate;
-the current app and repositories do not automatically invoke normalization.
+the merchant review flow invokes `normalizeMerchantDescription` on raw source text.
+Repositories preserve raw descriptions and do not invoke normalization.
 
 The output policy trims surrounding ECMAScript whitespace (`\s`) and collapses
 internal whitespace runs to one ASCII space. Case, accents, and punctuation in
@@ -189,28 +190,49 @@ remain review candidates, not Merchant identities. Ranking performs no
 normalization, persistence, resolution, or Transaction assignment. The merchant
 review UI is the next separate step.
 
-Tests check the public contracts and production behavior using synthetic
-descriptions. Location/noise suffix removal, broader identity resolution, category
-assignment, and UI remain separate later tasks.
+Tests check the public contracts and production behavior using invented synthetic
+descriptions and dates. Private statement evidence is not copied into repository
+source, tests, fixtures, or documentation.
 
-There are currently no production location/noise suffix-removal rules. The
+`normalizeStatementMetadataSuffix` implements `MerchantDescriptionNormalizer`.
+It removes only a terminal metadata line with this exact grammar:
+
+```text
+<NONBLANK_DESCRIPTION><LF_OR_CRLF>Value Date DD/MM/YYYY
+```
+
+The label is case-sensitive, with one ASCII space between `Value` and `Date` and
+one between `Date` and the date. Date digits are ASCII and fixed-width: two-digit
+day, two-digit month, and four-digit year separated by literal `/` characters.
+The date must be a valid Gregorian calendar date, including leap-year rules,
+with a year from `0001` through `9999`. The preceding description must contain
+non-whitespace text. The matching line must end at the strict end of the input:
+trailing spaces, tabs, or another newline prevent removal. A bare carriage return,
+same-line label, leading indentation, altered label, or malformed date is retained.
+
+This rule inspects the original line boundaries before whitespace normalization.
+It removes the matching line and its preceding LF or CRLF only, then applies the
+ordinary trim/collapse policy. Unmatched input receives that same whitespace
+normalization. Retained case, punctuation, and accents stay unchanged; the caller
+must keep `Transaction.rawDescription` unchanged. For example, using placeholders:
+
+```text
+<MERCHANT>\nValue Date <VALID_DD/MM/YYYY> → <MERCHANT>
+<MERCHANT> Value Date <VALID_DD/MM/YYYY> → unchanged text
+```
+
+`normalizeMerchantDescription` implements the same contract and composes metadata
+suffix removal first, followed by `normalizePaymentProcessorPrefix`. This ordering
+preserves the line boundary needed to recognize metadata before prefix processing
+collapses whitespace. It still removes at most one supported processor wrapper.
+The merchant review flow uses this composed API before grouping historical
+associations, looking up Household rules, and resolving review candidates.
+
+The removable suffix is identified by an explicit metadata grammar, not a guess
+about a word's meaning. Location names, state/country tokens, trailing numbers,
+delimiters, and arbitrary final words remain intact. Card details, including card
+evidence associated with foreign-currency transactions, are not stripped. The
 [tracked CommBank reference](../../fixtures/bank-statements/commbank/browser-summary-01.reference.json)
-contains 11 transaction descriptions. The suffix candidates are bare
-`EXAMPLEVILLE` in `FIXTURE MARKET EXAMPLEVILLE` and the numeric continuation in
-`Direct Debit SYNTHETIC UTILITIES\n91007382`. The fixture README describes an
-invented numeric reference, but neither candidate establishes syntax that reliably
-separates merchant identity text from discardable text for arbitrary descriptions.
-The importer preserves that continuation as description evidence.
-
-The architecture example `SQ *KAHII Sydney NS AUS` illustrates an intended result;
-it does not define an unambiguous suffix format. City names (including `Sydney`
-or `EXAMPLEVILLE`), state abbreviations, country names/codes, numeric tokens,
-and arbitrary terminal words are deliberately retained, whether at the end or
-in the middle. Such fragments may distinguish merchants, outlets, or services;
-`Sydney Tools` must stay intact. No fixture-specific hardcoded removals are added.
-
-Suffix normalization cannot yet be marked complete. It needs tracked evidence or
-a documented structured format distinguishing removable suffixes from identity
-text. Until then, processor-prefix normalization remains the only production
-step and owns whitespace normalization. There is no suffix function, duplicate
-whitespace implementation, or additional composition layer.
+has no matching metadata suffix; its location and numeric continuations remain
+description evidence. There is no location dictionary, fuzzy matching, merchant
+identity creation, category assignment, persistence change, or UI change.

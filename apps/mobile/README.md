@@ -60,25 +60,50 @@ state and database connection. Each entry reads current Transactions and Account
 and rebuilds the queue; no review data is cached across entries. Both Back controls
 return Home, preserving the selected statement and retained import result.
 
-The presentation helper `buildMerchantReviewQueues()` skips Transactions with an
-existing `merchantId` and those without a raw description. It derives text using
-`normalizePaymentProcessorPrefix()` and deliberately omits empty results. Each
+The presentation helper `buildMerchantReviewQueues()` omits Transactions without a
+raw description and empty `normalizeMerchantDescription()` results. Each
 remaining Transaction gets Household context from its persisted Account, including
 closed Accounts; missing Account context fails instead of assuming a Household.
+Review queues retain internal `householdId` and `currency`, and equal descriptions
+in different Households never merge. Household IDs sort by ordinary JS string
+ordering before currency queues; this is presentation order, not a combined
+monetary ranking. Duplicate Transaction IDs are rejected globally, including
+across Households.
+
 `MerchantRuleRepository.get(account.householdId, normalizedDescription)` supplies
 an exact, Household-scoped confirmed identity to `resolveMerchantIdentity()`.
-Confirmed results are excluded. There is no persisted alias catalog or fabricated
-suggestion source. Source Transactions and `rawDescription` remain unchanged.
+Confirmed groups are excluded before financial ranking and take priority over
+historical suggestions. Existing Transaction `merchantId` associations supply
+historical evidence only: those Transactions never contribute to review counts
+or spending. Within each Household and exact, case-sensitive normalized
+description, one distinct historical Merchant ID can suggest that Merchant.
+Repeated agreeing associations remain one candidate. Zero IDs or two or more
+distinct IDs produce `unknown`; conflicting evidence never chooses arbitrarily
+and does not throw merely because IDs disagree. Evidence can span a Household's
+currencies, while money is always ranked separately by currency. No fuzzy,
+substring, location-removal, catalog, or alias-persistence behavior is added.
 
-Only unknown observations reach `rankUnknownMerchantReviewQueues()`. The screen
-preserves its currency sections and spending/count/description order, showing
-derived descriptions, Transaction counts, and total outgoing value. Credits and
-zero contribute to counts but do not reduce outgoing value. AUD uses the existing
-safe two-decimal formatter; other currencies show exact minor units without
-assuming a scale or converting currencies. Loading, empty, and fixed error states
-expose no source descriptions, IDs, or database diagnostics. Review groups remain
-textual candidates; this screen creates no Merchants or rules, changes no
-Transactions, and offers no confirmation or category controls.
+Each unique candidate is read through `MerchantRepository.getById()`. Missing,
+mismatched, or invalid canonical records fail with a fixed load error rather than
+becoming a suggestion. The Transaction repository also validates persisted
+Merchant references on read. Suggested review groups carry readonly `status`,
+internal `merchantId`, and canonical `displayName`; unknown groups carry no
+candidate identity/name. All output layers are frozen. Source Transactions and
+`rawDescription` remain unchanged.
+
+The helper partitions unassociated observations by Household, reuses
+`rankUnknownMerchantReviewQueues()` for identity-free financial ordering, then
+attaches unconfirmed review state. The screen preserves spending/count/description
+order within each Household/currency, showing derived descriptions, Transaction
+counts, total outgoing value, and canonical names for actual suggestions. Credits
+and zero contribute to counts but do not reduce outgoing value. AUD uses the
+existing safe two-decimal formatter; other currencies show exact minor units
+without assuming a scale or converting currencies. Household and Merchant IDs are
+retained only in internal presentation state, never rendered. Loading, empty, and
+fixed error states expose no raw source fields or database diagnostics. The screen
+creates no Merchants or rules, changes no Transactions, and offers no confirmation
+or category controls. Suggestions are derived afresh on entry and are not
+persisted; confirmation is the next separate task.
 
 Home's Choose statement PDF control opens Android's system document picker using
 `expo-document-picker`, installed with
